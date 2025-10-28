@@ -4,5 +4,4 @@ numpy
 python-docx
 plotly
 matplotlib
-kaleido
 openpyxl
