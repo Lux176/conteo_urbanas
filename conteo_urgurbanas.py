@@ -8,26 +8,18 @@ import plotly.express as px
 import tempfile
 import os
 from datetime import datetime
-import plotly.io as pio
 from io import BytesIO
 import unicodedata
 import base64
-import subprocess
-import sys
 
-# Intentar instalar Chrome automáticamente
-try:
-    subprocess.run([sys.executable, "-m", "pip", "install", "kaleido"], check=True)
-    # En entornos que lo permitan, instalar Chrome
-    try:
-        subprocess.run(["plotly_get_chrome"], check=True, capture_output=True)
-    except:
-        st.info("Chrome no está disponible. Usando matplotlib como respaldo.")
-except:
-    pass
+# Configuración de la página
+st.set_page_config(
+    page_title="Analizador de Urgencias Operativas",
+    page_icon="📊",
+    layout="wide"
+)
 
-
-# --- FUNCIONES ORIGINALES (adaptadas para Streamlit) ---
+# --- FUNCIONES ---
 
 def limpiar_texto(texto):
     """
@@ -45,34 +37,76 @@ def limpiar_texto(texto):
     return texto_limpio
 
 def parsear_fecha(fecha):
-    if pd.isna(fecha): return None
-    if isinstance(fecha, (datetime, pd.Timestamp)): return fecha
-    for fmt in ('%d/%m/%Y', '%d/%m/%y'):
-        try: return datetime.strptime(str(fecha), fmt)
-        except: continue
+    if pd.isna(fecha): 
+        return None
+    if isinstance(fecha, (datetime, pd.Timestamp)): 
+        return fecha
+    for fmt in ('%d/%m/%Y', '%d/%m/%y', '%Y-%m-%d', '%d-%m-%Y'):
+        try: 
+            return datetime.strptime(str(fecha).strip(), fmt)
+        except: 
+            continue
     return None
 
 def generar_grafica_bar(conteo, titulo, filename):
+    """Genera gráficas usando matplotlib para el reporte Word"""
+    df_plot = conteo.reset_index()
+    df_plot.columns = ['Categoría', 'Cantidad']
+    
+    # Crear gráfica con matplotlib
+    plt.figure(figsize=(12, 6))
+    colors = plt.cm.viridis(np.linspace(0, 1, len(df_plot)))
+    bars = plt.bar(df_plot['Categoría'], df_plot['Cantidad'], color=colors)
+    
+    plt.title(titulo, fontsize=14, fontweight='bold')
+    plt.xlabel('Categoría', fontweight='bold')
+    plt.ylabel('Cantidad', fontweight='bold')
+    plt.xticks(rotation=45, ha='right')
+    
+    # Añadir valores en las barras
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                f'{int(height)}', ha='center', va='bottom', fontweight='bold')
+    
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    
+    # Guardar imagen
+    path = os.path.join(tempfile.gettempdir(), filename)
+    plt.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return path
+
+def generar_grafica_plotly(conteo, titulo):
+    """Genera gráfica plotly para mostrar en Streamlit"""
     df_plot = conteo.reset_index()
     df_plot.columns = ['Categoría', 'Cantidad']
     fig = px.bar(df_plot, x='Categoría', y='Cantidad', title=titulo,
                  color='Cantidad', color_continuous_scale='Viridis')
-    path = os.path.join(tempfile.gettempdir(), filename)
-    try:
-        fig.write_image(path, engine='kaleido')
-    except Exception as e:
-        st.warning(f"Error con Kaleido: {str(e)}. Usando matplotlib...")
-        plt.figure(figsize=(10, 6))
-        df_plot.plot(kind='bar', x='Categoría', y='Cantidad', legend=False)
-        plt.title(titulo)
-        plt.tight_layout()
-        plt.savefig(path)
-        plt.close()
-    return path
+    fig.update_layout(
+        xaxis_tickangle=-45,
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(size=12)
+    )
+    fig.update_xaxes(title_text="Categoría")
+    fig.update_yaxes(title_text="Cantidad")
+    return fig
 
 def generar_reporte_word(conteos, imagenes):
+    """Genera reporte en formato Word con los resultados"""
     doc = Document()
-    doc.add_heading('Reporte de Urgencias Operativas', 0)
+    
+    # Título principal
+    title = doc.add_heading('Reporte de Urgencias Operativas', 0)
+    title.alignment = 1  # Centrado
+    
+    # Fecha de generación
+    doc.add_paragraph(f"Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    doc.add_paragraph()
+    
     doc.add_heading('Resumen de Incidentes', level=1)
     
     for nombre, conteo in conteos.items():
@@ -87,29 +121,39 @@ def generar_reporte_word(conteos, imagenes):
             hdr_cells[0].text = "Tipo de Incidente"
             hdr_cells[1].text = "Cantidad"
         
+        # Añadir filas con datos
         for tipo, cantidad in conteo.items():
             row_cells = tabla.add_row().cells
-            row_cells[0].text = str(tipo)
+            row_cells[0].text = str(tipo).title()
             row_cells[1].text = str(cantidad)
     
+    doc.add_page_break()
     doc.add_heading('Gráficas', level=1)
+    
     for titulo, path in imagenes.items():
         if os.path.exists(path):
             doc.add_heading(titulo, level=2)
-            doc.add_picture(path, width=Inches(5.5))
-        else:
-            doc.add_paragraph(f"Gráfica no disponible: {titulo}", style='List Bullet')
+            doc.add_picture(path, width=Inches(6.0))
+            doc.add_paragraph()  # Espacio entre gráficas
     
     output_path = os.path.join(tempfile.gettempdir(), 'reporte_urgencias_operativas.docx')
     doc.save(output_path)
     return output_path
 
 def generar_reporte_txt(conteos):
-    texto = ["Reporte de Urgencias Urbanas\n", "="*30]
+    """Genera reporte en formato de texto simple"""
+    texto = []
+    texto.append("REPORTE DE URGENCIAS URBANAS")
+    texto.append("=" * 50)
+    texto.append(f"Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    texto.append("")
+    
     for nombre, conteo in conteos.items():
-        texto.append(f"\n\n--- {nombre.upper()} ---")
+        texto.append(f"\n{nombre.upper()}")
+        texto.append("-" * len(nombre))
         for tipo, cantidad in conteo.items():
-            texto.append(f"{tipo}: {cantidad}")
+            texto.append(f"  {tipo.title()}: {cantidad}")
+    
     contenido = "\n".join(texto)
     path_txt = os.path.join(tempfile.gettempdir(), "reporte_urgencias_operativas.txt")
     with open(path_txt, "w", encoding="utf-8") as f:
@@ -121,10 +165,11 @@ def get_download_link(file_path, file_label):
     with open(file_path, "rb") as f:
         data = f.read()
     b64 = base64.b64encode(data).decode()
-    href = f'<a href="data:file/octet-stream;base64,{b64}" download="{os.path.basename(file_path)}">Descargar {file_label}</a>'
+    file_name = os.path.basename(file_path)
+    href = f'<a href="data:file/octet-stream;base64,{b64}" download="{file_name}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; margin: 5px;">📥 {file_label}</a>'
     return href
 
-# --- INTERFAZ DE STREAMLIT ---
+# --- INTERFAZ PRINCIPAL ---
 
 def main():
     st.title("📊 Analizador de Urgencias Operativas")
@@ -136,6 +181,7 @@ def main():
     
     if uploaded_file is not None:
         try:
+            # Leer archivo
             if uploaded_file.name.endswith('.xlsx'):
                 df = pd.read_excel(uploaded_file)
             else:
@@ -144,8 +190,10 @@ def main():
             st.success(f"✅ Archivo cargado correctamente. Dimensiones: {df.shape[0]} filas × {df.shape[1]} columnas")
             
             # Mostrar vista previa
-            with st.expander("Vista previa de los datos"):
-                st.dataframe(df.head())
+            with st.expander("📋 Vista previa de los datos (primeras 10 filas)"):
+                st.dataframe(df.head(10))
+                st.write(f"**Total de columnas:** {len(df.columns)}")
+                st.write(f"**Total de registros:** {len(df)}")
             
             # Selección de columnas
             st.header("2. Configuración del Análisis")
@@ -155,19 +203,24 @@ def main():
                 col_incidentes = st.selectbox(
                     "Selecciona la columna de INCIDENTES:",
                     options=df.columns,
-                    index=None
+                    index=None,
+                    help="Columna que contiene los tipos de incidentes"
                 )
             
             with col2:
                 col_colonias = st.selectbox(
                     "Selecciona la columna de COLONIAS:",
                     options=df.columns,
-                    index=None
+                    index=None,
+                    help="Columna que contiene los nombres de las colonias"
                 )
             
             # Filtro por fechas
-            st.subheader("Filtro por Fechas (Opcional)")
-            usar_fechas = st.checkbox("Filtrar por rango de fechas")
+            st.subheader("🗓️ Filtro por Fechas (Opcional)")
+            usar_fechas = st.checkbox("Activar filtro por fechas")
+            
+            fecha_inicio = None
+            fecha_fin = None
             
             if usar_fechas and col_incidentes and col_colonias:
                 col_fechas = st.selectbox(
@@ -188,79 +241,130 @@ def main():
                             fecha_inicio = datetime.strptime(fecha_inicio_str.strip(), '%d/%m/%Y')
                             fecha_fin = datetime.strptime(fecha_fin_str.strip(), '%d/%m/%Y')
                             
-                            df['fecha_parseada'] = df[col_fechas].apply(parsear_fecha)
-                            df_filtrado = df.dropna(subset=['fecha_parseada'])
-                            df_filtrado = df_filtrado[(df_filtrado['fecha_parseada'] >= fecha_inicio) & 
-                                                     (df_filtrado['fecha_parseada'] <= fecha_fin)]
-                            
-                            st.info(f"📅 Datos filtrados: {len(df_filtrado)} registros entre {fecha_inicio.strftime('%d/%m/%Y')} y {fecha_fin.strftime('%d/%m/%Y')}")
-                            df = df_filtrado
-                            
-                        except Exception as e:
-                            st.warning(f"⚠️ Error al filtrar fechas: {str(e)}. Se usarán todos los datos.")
+                            if fecha_inicio > fecha_fin:
+                                st.error("❌ La fecha de inicio no puede ser mayor que la fecha de fin")
+                            else:
+                                st.info(f"📅 Rango seleccionado: {fecha_inicio.strftime('%d/%m/%Y')} - {fecha_fin.strftime('%d/%m/%Y')}")
+                                
+                        except ValueError:
+                            st.error("❌ Formato de fecha incorrecto. Use el formato d/m/AAAA (ej: 01/01/2024)")
             
             # Botón para generar análisis
             if col_incidentes and col_colonias:
-                if st.button("🚀 Generar Reporte Completo", type="primary"):
+                st.markdown("---")
+                if st.button("🚀 Generar Reporte Completo", type="primary", use_container_width=True):
+                    
                     with st.spinner("Procesando datos..."):
+                        # Crear copia para no modificar el original
+                        df_clean = df.copy()
+                        
                         # Aplicar limpieza de texto
-                        df[col_incidentes] = df[col_incidentes].apply(limpiar_texto)
-                        df[col_colonias] = df[col_colonias].apply(limpiar_texto)
+                        df_clean[col_incidentes] = df_clean[col_incidentes].apply(limpiar_texto)
+                        df_clean[col_colonias] = df_clean[col_colonias].apply(limpiar_texto)
+                        
+                        # Aplicar filtro de fechas si está activado
+                        if usar_fechas and fecha_inicio and fecha_fin and col_fechas:
+                            df_clean['fecha_parseada'] = df_clean[col_fechas].apply(parsear_fecha)
+                            df_filtrado = df_clean.dropna(subset=['fecha_parseada'])
+                            df_filtrado = df_filtrado[
+                                (df_filtrado['fecha_parseada'] >= fecha_inicio) & 
+                                (df_filtrado['fecha_parseada'] <= fecha_fin)
+                            ]
+                            st.info(f"📊 Datos filtrados: {len(df_filtrado)} registros de {len(df_clean)} originales")
+                            df_clean = df_filtrado
+                        
+                        # Verificar que hay datos después del filtrado
+                        if df_clean.empty:
+                            st.error("❌ No hay datos después del filtrado. Ajusta los criterios de filtro.")
+                            return
                         
                         # Generar conteos
                         conteos = {}
-                        conteos["Conteo General de Incidentes"] = df[col_incidentes].value_counts()
-                        if col_colonias in df.columns:
-                            top_10_colonias = df[col_colonias].value_counts().head(10)
+                        conteos["Conteo General de Incidentes"] = df_clean[col_incidentes].value_counts()
+                        
+                        if col_colonias in df_clean.columns:
+                            top_10_colonias = df_clean[col_colonias].value_counts().head(10)
                             conteos["Top 10 Colonias con Más Afectaciones"] = top_10_colonias
                         
                         # Mostrar resultados en la interfaz
-                        st.header("3. Resultados del Análisis")
+                        st.header("3. 📈 Resultados del Análisis")
                         
+                        # Métricas rápidas
+                        col_met1, col_met2, col_met3 = st.columns(3)
+                        with col_met1:
+                            total_incidentes = len(df_clean)
+                            st.metric("Total de Incidentes", total_incidentes)
+                        with col_met2:
+                            tipos_incidentes = len(conteos["Conteo General de Incidentes"])
+                            st.metric("Tipos de Incidentes", tipos_incidentes)
+                        with col_met3:
+                            total_colonias = df_clean[col_colonias].nunique()
+                            st.metric("Colonias Afectadas", total_colonias)
+                        
+                        # Mostrar tablas y gráficas
                         for nombre, conteo in conteos.items():
                             st.subheader(nombre)
-                            st.dataframe(conteo.reset_index().rename(
-                                columns={'index': 'Categoría', col_incidentes: 'Cantidad'}
-                            ))
-                        
-                        # Generar gráficas
-                        st.subheader("Gráficas Generadas")
-                        imagenes = {}
-                        for k, v in conteos.items():
-                            safe_filename = f"grafica_{k.replace(' ', '_').lower()}.png"
-                            imagenes[k] = generar_grafica_bar(v, k, safe_filename)
                             
-                            # Mostrar gráficas en Streamlit
-                            st.plotly_chart(px.bar(
-                                v.reset_index(), 
-                                x='index', 
-                                y=col_incidentes, 
-                                title=k,
-                                color=col_incidentes,
-                                color_continuous_scale='Viridis'
-                            ), use_container_width=True)
+                            # Mostrar tabla
+                            df_display = conteo.reset_index()
+                            if "Colonias" in nombre:
+                                df_display.columns = ['Colonia', 'Cantidad de Afectaciones']
+                            else:
+                                df_display.columns = ['Tipo de Incidente', 'Cantidad']
+                            
+                            st.dataframe(df_display, use_container_width=True)
+                            
+                            # Mostrar gráfica interactiva
+                            fig = generar_grafica_plotly(conteo, nombre)
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Generar gráficas para el reporte Word
+                        st.header("4. 📄 Generando Reportes Descargables")
+                        with st.spinner("Generando gráficas para el reporte..."):
+                            imagenes = {}
+                            for k, v in conteos.items():
+                                safe_filename = f"grafica_{k.replace(' ', '_').replace('/', '_').lower()}.png"
+                                imagenes[k] = generar_grafica_bar(v, k, safe_filename)
                         
                         # Generar y ofrecer descarga de reportes
-                        st.header("4. Descargar Reportes")
+                        st.success("✅ Reportes generados correctamente")
                         
-                        # Reporte Word
-                        doc_path = generar_reporte_word(conteos, imagenes)
-                        st.markdown(get_download_link(doc_path, "Reporte Word"), unsafe_allow_html=True)
+                        col_dl1, col_dl2 = st.columns(2)
                         
-                        # Reporte TXT
-                        txt_path = generar_reporte_txt(conteos)
-                        st.markdown(get_download_link(txt_path, "Reporte Texto"), unsafe_allow_html=True)
+                        with col_dl1:
+                            with st.spinner("Generando reporte Word..."):
+                                doc_path = generar_reporte_word(conteos, imagenes)
+                                st.markdown(get_download_link(doc_path, "Descargar Reporte Word (.docx)"), unsafe_allow_html=True)
                         
-                        st.success("🎉 ¡Análisis completado! Puedes descargar los reportes arriba.")
+                        with col_dl2:
+                            with st.spinner("Generando reporte de texto..."):
+                                txt_path = generar_reporte_txt(conteos)
+                                st.markdown(get_download_link(txt_path, "Descargar Reporte Texto (.txt)"), unsafe_allow_html=True)
+                        
+                        # Limpiar archivos temporales
+                        for path in imagenes.values():
+                            try:
+                                if os.path.exists(path):
+                                    os.remove(path)
+                            except:
+                                pass
             
             else:
                 st.warning("⚠️ Por favor, selecciona ambas columnas (INCIDENTES y COLONIAS) para continuar.")
                 
         except Exception as e:
             st.error(f"❌ Error al procesar el archivo: {str(e)}")
+            st.info("💡 **Sugerencias:** Verifica que el archivo no esté dañado y que tenga el formato correcto.")
     
     else:
         st.info("👆 Por favor, sube un archivo CSV o Excel para comenzar el análisis.")
+        st.markdown("""
+        ### 📝 Instrucciones:
+        1. **Sube tu archivo** de datos (CSV o Excel)
+        2. **Selecciona las columnas** correspondientes a incidentes y colonias
+        3. **Configura los filtros** si es necesario
+        4. **Genera el reporte** y descarga los resultados
+        """)
 
 if __name__ == "__main__":
     main()
