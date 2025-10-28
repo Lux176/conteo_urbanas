@@ -12,18 +12,20 @@ import plotly.io as pio
 from io import BytesIO
 import unicodedata
 import base64
+import subprocess
+import sys
 
-# Configuración de la página
-st.set_page_config(
-    page_title="Analizador de Urgencias Operativas",
-    page_icon="📊",
-    layout="wide"
-)
-
+# Intentar instalar Chrome automáticamente
 try:
-    pio.kaleido.scope.mathjax = None
+    subprocess.run([sys.executable, "-m", "pip", "install", "kaleido"], check=True)
+    # En entornos que lo permitan, instalar Chrome
+    try:
+        subprocess.run(["plotly_get_chrome"], check=True, capture_output=True)
+    except:
+        st.info("Chrome no está disponible. Usando matplotlib como respaldo.")
 except:
     pass
+
 
 # --- FUNCIONES ORIGINALES (adaptadas para Streamlit) ---
 
