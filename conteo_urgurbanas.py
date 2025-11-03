@@ -95,45 +95,20 @@ def generar_grafica_plotly(conteo, titulo):
     fig.update_yaxes(title_text="Cantidad")
     return fig
 
-# --- NUEVA FUNCIÓN: ANÁLISIS DE LLUVIAS ---
-def analizar_lluvias(df, col_incidentes, col_colonias):
+# --- NUEVA FUNCIÓN: ANÁLISIS DE LLUVIAS MEJORADA ---
+def analizar_lluvias_manual(df, col_lluvias, col_colonias, col_fecha=None, col_hora=None):
     """
-    Realiza análisis especializado de reportes por lluvias
+    Realiza análisis especializado de reportes por lluvias con selección manual
     """
-    # Buscar la columna de lluvias (diferentes nombres posibles)
-    posibles_nombres = [
-        "¿El reporte referente a las lluvias?",
-        "reporte referente a las lluvias",
-        "lluvias",
-        "reporte_lluvias",
-        "es_lluvia",
-        "por_lluvias",
-        "causa_lluvia"
-    ]
-    
-    columna_lluvias = None
-    for nombre in posibles_nombles:
-        if nombre.lower() in [col.lower() for col in df.columns]:
-            # Encontrar el nombre exacto de la columna
-            for col in df.columns:
-                if col.lower() == nombre.lower():
-                    columna_lluvias = col
-                    break
-            if columna_lluvias:
-                break
-    
-    if columna_lluvias is None:
-        return None
-    
     # Filtrar solo reportes de lluvias
     df_lluvias = df.copy()
     
     # Normalizar respuestas de lluvias
-    df_lluvias[columna_lluvias] = df_lluvias[columna_lluvias].astype(str).str.lower().str.strip()
+    df_lluvias[col_lluvias] = df_lluvias[col_lluvias].astype(str).str.lower().str.strip()
     
     # Mapear diferentes formatos de respuesta
-    respuestas_afirmativas = ['sí', 'si', 'yes', 'true', 'verdadero', '1', 'x', 'check', 'afirmativo']
-    df_lluvias['es_lluvia'] = df_lluvias[columna_lluvias].isin(respuestas_afirmativas)
+    respuestas_afirmativas = ['sí', 'si', 'yes', 'true', 'verdadero', '1', 'x', 'check', 'afirmativo', 'lluvia']
+    df_lluvias['es_lluvia'] = df_lluvias[col_lluvias].isin(respuestas_afirmativas)
     
     # Filtrar reportes de lluvias
     reportes_lluvias = df_lluvias[df_lluvias['es_lluvia'] == True]
@@ -145,7 +120,46 @@ def analizar_lluvias(df, col_incidentes, col_colonias):
     conteo_colonias_lluvias = reportes_lluvias[col_colonias].value_counts()
     
     # Análisis por tipo de incidente en lluvias
-    conteo_incidentes_lluvias = reportes_lluvias[col_incidentes].value_counts()
+    if 'col_incidentes' in st.session_state:
+        col_incidentes = st.session_state.col_incidentes
+        conteo_incidentes_lluvias = reportes_lluvias[col_incidentes].value_counts()
+    else:
+        conteo_incidentes_lluvias = None
+    
+    # Análisis por fecha y hora si están disponibles
+    analisis_fecha_hora = None
+    if col_fecha:
+        try:
+            # Procesar fechas
+            reportes_lluvias['fecha_parseada'] = reportes_lluvias[col_fecha].apply(parsear_fecha)
+            reportes_lluvias_fecha = reportes_lluvias.dropna(subset=['fecha_parseada'])
+            
+            if not reportes_lluvias_fecha.empty:
+                # Día con más lluvias
+                dia_mas_lluvias = reportes_lluvias_fecha['fecha_parseada'].dt.date.value_counts().head(1)
+                
+                # Análisis por hora si está disponible
+                hora_mas_lluvias = None
+                if col_hora:
+                    try:
+                        # Extraer hora de la columna de hora
+                        reportes_lluvias_fecha['hora_parseada'] = pd.to_datetime(reportes_lluvias_fecha[col_hora], errors='coerce').dt.hour
+                        reportes_lluvias_hora = reportes_lluvias_fecha.dropna(subset=['hora_parseada'])
+                        if not reportes_lluvias_hora.empty:
+                            hora_mas_lluvias = reportes_lluvias_hora['hora_parseada'].value_counts().head(1)
+                    except:
+                        pass
+                
+                analisis_fecha_hora = {
+                    'dia_mas_lluvias': dia_mas_lluvias,
+                    'hora_mas_lluvias': hora_mas_lluvias,
+                    'reportes_con_fecha': reportes_lluvias_fecha
+                }
+        except:
+            analisis_fecha_hora = None
+    
+    # Colonia más afectada
+    colonia_mas_afectada = conteo_colonias_lluvias.head(1)
     
     # Estadísticas generales
     total_reportes = len(df)
@@ -153,10 +167,12 @@ def analizar_lluvias(df, col_incidentes, col_colonias):
     porcentaje_lluvias = (total_lluvias / total_reportes) * 100
     
     return {
-        'columna_lluvias': columna_lluvias,
+        'columna_lluvias': col_lluvias,
         'reportes_lluvias': reportes_lluvias,
         'conteo_colonias_lluvias': conteo_colonias_lluvias,
         'conteo_incidentes_lluvias': conteo_incidentes_lluvias,
+        'analisis_fecha_hora': analisis_fecha_hora,
+        'colonia_mas_afectada': colonia_mas_afectada,
         'estadisticas': {
             'total_reportes': total_reportes,
             'total_lluvias': total_lluvias,
@@ -306,6 +322,9 @@ def main():
                     index=None,
                     help="Columna que contiene los tipos de incidentes"
                 )
+                # Guardar en session state para usar en análisis de lluvias
+                if col_incidentes:
+                    st.session_state.col_incidentes = col_incidentes
             
             with col2:
                 col_colonias = st.selectbox(
@@ -315,9 +334,51 @@ def main():
                     help="Columna que contiene los nombres de las colonias"
                 )
             
-            # --- NUEVA SECCIÓN: ANÁLISIS DE LLUVIAS ---
+            # --- NUEVA SECCIÓN: ANÁLISIS DE LLUVIAS INTERACTIVO ---
             st.subheader("🌧️ Análisis de Reportes por Lluvias")
-            analizar_lluvias_check = st.checkbox("Incluir análisis específico de reportes por lluvias")
+            analizar_lluvias_check = st.checkbox("Realizar análisis específico de reportes por lluvias")
+            
+            col_lluvias = None
+            col_fecha_lluvias = None
+            col_hora_lluvias = None
+            
+            if analizar_lluvias_check:
+                st.info("🔍 Selecciona las columnas para el análisis de lluvias:")
+                
+                col3, col4, col5 = st.columns(3)
+                
+                with col3:
+                    col_lluvias = st.selectbox(
+                        "Columna de LLUVIAS:",
+                        options=df.columns,
+                        index=None,
+                        help="Columna que indica si el reporte fue por lluvias (Sí/No, 1/0, etc.)"
+                    )
+                
+                with col4:
+                    col_fecha_lluvias = st.selectbox(
+                        "Columna de FECHA (opcional):",
+                        options=["No usar"] + list(df.columns),
+                        index=0,
+                        help="Columna con la fecha del incidente"
+                    )
+                    if col_fecha_lluvias == "No usar":
+                        col_fecha_lluvias = None
+                
+                with col5:
+                    col_hora_lluvias = st.selectbox(
+                        "Columna de HORA (opcional):",
+                        options=["No usar"] + list(df.columns),
+                        index=0,
+                        help="Columna con la hora del incidente"
+                    )
+                    if col_hora_lluvias == "No usar":
+                        col_hora_lluvias = None
+                
+                if col_lluvias:
+                    # Mostrar vista previa de valores únicos en la columna de lluvias
+                    valores_unicos = df[col_lluvias].astype(str).unique()[:10]
+                    st.write(f"**Valores en columna de lluvias:** {', '.join(map(str, valores_unicos))}")
             
             # Filtro por fechas
             st.subheader("🗓️ Filtro por Fechas (Opcional)")
@@ -334,10 +395,10 @@ def main():
                 )
                 
                 if col_fechas:
-                    col3, col4 = st.columns(2)
-                    with col3:
+                    col6, col7 = st.columns(2)
+                    with col6:
                         fecha_inicio_str = st.text_input("Fecha de inicio (d/m/AAAA):", placeholder="01/01/2024")
-                    with col4:
+                    with col7:
                         fecha_fin_str = st.text_input("Fecha de fin (d/m/AAAA):", placeholder="31/12/2024")
                     
                     if fecha_inicio_str and fecha_fin_str:
@@ -390,10 +451,13 @@ def main():
                             top_10_colonias = df_clean[col_colonias].value_counts().head(10)
                             conteos["Top 10 Colonias con Más Afectaciones"] = top_10_colonias
                         
-                        # --- NUEVO: ANÁLISIS DE LLUVIAS ---
-                        if analizar_lluvias_check:
+                        # --- NUEVO: ANÁLISIS DE LLUVIAS MANUAL ---
+                        resultado_lluvias = None
+                        if analizar_lluvias_check and col_lluvias:
                             with st.spinner("Analizando reportes por lluvias..."):
-                                resultado_lluvias = analizar_lluvias(df_clean, col_incidentes, col_colonias)
+                                resultado_lluvias = analizar_lluvias_manual(
+                                    df_clean, col_lluvias, col_colonias, col_fecha_lluvias, col_hora_lluvias
+                                )
                                 
                                 if resultado_lluvias is not None:
                                     # Agregar conteos de lluvias a los resultados principales
@@ -417,13 +481,31 @@ def main():
                         
                         # Mostrar métricas de lluvias si se analizaron
                         if analizar_lluvias_check and resultado_lluvias is not None:
+                            st.subheader("🌧️ Resultados de Análisis de Lluvias")
+                            
                             col_met4, col_met5, col_met6 = st.columns(3)
                             with col_met4:
                                 st.metric("Reportes por Lluvias", resultado_lluvias['estadisticas']['total_lluvias'])
                             with col_met5:
                                 st.metric("% por Lluvias", f"{resultado_lluvias['estadisticas']['porcentaje_lluvias']:.1f}%")
                             with col_met6:
-                                st.metric("Columna detectada", resultado_lluvias['columna_lluvias'])
+                                colonia_mas = resultado_lluvias['colonia_mas_afectada'].index[0]
+                                cantidad_mas = resultado_lluvias['colonia_mas_afectada'].iloc[0]
+                                st.metric("Colonia más afectada", f"{colonia_mas} ({cantidad_mas})")
+                            
+                            # Información de fecha y hora si está disponible
+                            if resultado_lluvias['analisis_fecha_hora']:
+                                analisis_fh = resultado_lluvias['analisis_fecha_hora']
+                                
+                                if not analisis_fh['dia_mas_lluvias'].empty:
+                                    dia_mas = analisis_fh['dia_mas_lluvias'].index[0]
+                                    cantidad_dia = analisis_fh['dia_mas_lluvias'].iloc[0]
+                                    st.info(f"📅 **Día con más lluvias:** {dia_mas} ({cantidad_dia} reportes)")
+                                
+                                if analisis_fh['hora_mas_lluvias'] is not None and not analisis_fh['hora_mas_lluvias'].empty:
+                                    hora_mas = analisis_fh['hora_mas_lluvias'].index[0]
+                                    cantidad_hora = analisis_fh['hora_mas_lluvias'].iloc[0]
+                                    st.info(f"⏰ **Hora con más lluvias:** {hora_mas}:00 hrs ({cantidad_hora} reportes)")
                         
                         # Mostrar tablas y gráficas
                         for nombre, conteo in conteos.items():
@@ -454,10 +536,11 @@ def main():
                             st.plotly_chart(fig_lluvias, use_container_width=True)
                             
                             # Mostrar tabla detallada de incidentes por lluvias
-                            st.subheader("📋 Tipos de Incidentes durante Lluvias")
-                            df_incidentes_lluvias = resultado_lluvias['conteo_incidentes_lluvias'].reset_index()
-                            df_incidentes_lluvias.columns = ['Tipo de Incidente', 'Cantidad durante Lluvias']
-                            st.dataframe(df_incidentes_lluvias, use_container_width=True)
+                            if resultado_lluvias['conteo_incidentes_lluvias'] is not None:
+                                st.subheader("📋 Tipos de Incidentes durante Lluvias")
+                                df_incidentes_lluvias = resultado_lluvias['conteo_incidentes_lluvias'].reset_index()
+                                df_incidentes_lluvias.columns = ['Tipo de Incidente', 'Cantidad durante Lluvias']
+                                st.dataframe(df_incidentes_lluvias, use_container_width=True)
                         
                         # Generar gráficas para el reporte Word
                         st.header("4. 📄 Generando Reportes Descargables")
@@ -507,9 +590,10 @@ def main():
         4. **Genera el reporte** y descarga los resultados
         
         ### 🌧️ Nueva funcionalidad:
-        - **Análisis de reportes por lluvias**: Activa la opción para ver análisis específico de incidentes relacionados con lluvias
-        - **Detección automática**: El sistema detectará automáticamente si tu dataset contiene información sobre lluvias
-        - **Métricas específicas**: Porcentaje de reportes por lluvias y colonias más afectadas
+        - **Análisis de reportes por lluvias**: Activa la opción para análisis específico
+        - **Selección manual**: Elige la columna que indica si fue por lluvias
+        - **Análisis por fecha y hora**: Identifica el día y hora con más lluvias
+        - **Colonia más afectada**: Detecta automáticamente la colonia con más reportes por lluvias
         """)
 
 if __name__ == "__main__":
