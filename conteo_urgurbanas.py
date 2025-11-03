@@ -95,6 +95,106 @@ def generar_grafica_plotly(conteo, titulo):
     fig.update_yaxes(title_text="Cantidad")
     return fig
 
+# --- NUEVA FUNCIÓN: ANÁLISIS DE LLUVIAS ---
+def analizar_lluvias(df, col_incidentes, col_colonias):
+    """
+    Realiza análisis especializado de reportes por lluvias
+    """
+    # Buscar la columna de lluvias (diferentes nombres posibles)
+    posibles_nombres = [
+        "¿El reporte referente a las lluvias?",
+        "reporte referente a las lluvias",
+        "lluvias",
+        "reporte_lluvias",
+        "es_lluvia",
+        "por_lluvias",
+        "causa_lluvia"
+    ]
+    
+    columna_lluvias = None
+    for nombre in posibles_nombles:
+        if nombre.lower() in [col.lower() for col in df.columns]:
+            # Encontrar el nombre exacto de la columna
+            for col in df.columns:
+                if col.lower() == nombre.lower():
+                    columna_lluvias = col
+                    break
+            if columna_lluvias:
+                break
+    
+    if columna_lluvias is None:
+        return None
+    
+    # Filtrar solo reportes de lluvias
+    df_lluvias = df.copy()
+    
+    # Normalizar respuestas de lluvias
+    df_lluvias[columna_lluvias] = df_lluvias[columna_lluvias].astype(str).str.lower().str.strip()
+    
+    # Mapear diferentes formatos de respuesta
+    respuestas_afirmativas = ['sí', 'si', 'yes', 'true', 'verdadero', '1', 'x', 'check', 'afirmativo']
+    df_lluvias['es_lluvia'] = df_lluvias[columna_lluvias].isin(respuestas_afirmativas)
+    
+    # Filtrar reportes de lluvias
+    reportes_lluvias = df_lluvias[df_lluvias['es_lluvia'] == True]
+    
+    if len(reportes_lluvias) == 0:
+        return None
+    
+    # Análisis por colonia
+    conteo_colonias_lluvias = reportes_lluvias[col_colonias].value_counts()
+    
+    # Análisis por tipo de incidente en lluvias
+    conteo_incidentes_lluvias = reportes_lluvias[col_incidentes].value_counts()
+    
+    # Estadísticas generales
+    total_reportes = len(df)
+    total_lluvias = len(reportes_lluvias)
+    porcentaje_lluvias = (total_lluvias / total_reportes) * 100
+    
+    return {
+        'columna_lluvias': columna_lluvias,
+        'reportes_lluvias': reportes_lluvias,
+        'conteo_colonias_lluvias': conteo_colonias_lluvias,
+        'conteo_incidentes_lluvias': conteo_incidentes_lluvias,
+        'estadisticas': {
+            'total_reportes': total_reportes,
+            'total_lluvias': total_lluvias,
+            'porcentaje_lluvias': porcentaje_lluvias
+        }
+    }
+
+# --- NUEVA FUNCIÓN: CREAR GRÁFICO DE LLUVIAS ---
+def crear_grafico_lluvias(conteo_colonias, titulo="Colonias más afectadas por lluvias"):
+    """
+    Crea un gráfico de barras de las colonias más afectadas por lluvias
+    """
+    # Tomar las top 10 colonias para mejor visualización
+    top_colonias = conteo_colonias.head(10).reset_index()
+    top_colonias.columns = ['Colonia', 'Cantidad de Reportes']
+    
+    fig = px.bar(
+        top_colonias,
+        x='Cantidad de Reportes',
+        y='Colonia',
+        orientation='h',
+        title=titulo,
+        color='Cantidad de Reportes',
+        color_continuous_scale='blues'
+    )
+    
+    fig.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(color='black'),
+        height=400,
+        xaxis_title="Número de Reportes",
+        yaxis_title="Colonia",
+        yaxis={'categoryorder': 'total ascending'}
+    )
+    
+    return fig
+
 def generar_reporte_word(conteos, imagenes):
     """Genera reporte en formato Word con los resultados"""
     doc = Document()
@@ -215,6 +315,10 @@ def main():
                     help="Columna que contiene los nombres de las colonias"
                 )
             
+            # --- NUEVA SECCIÓN: ANÁLISIS DE LLUVIAS ---
+            st.subheader("🌧️ Análisis de Reportes por Lluvias")
+            analizar_lluvias_check = st.checkbox("Incluir análisis específico de reportes por lluvias")
+            
             # Filtro por fechas
             st.subheader("🗓️ Filtro por Fechas (Opcional)")
             usar_fechas = st.checkbox("Activar filtro por fechas")
@@ -286,6 +390,16 @@ def main():
                             top_10_colonias = df_clean[col_colonias].value_counts().head(10)
                             conteos["Top 10 Colonias con Más Afectaciones"] = top_10_colonias
                         
+                        # --- NUEVO: ANÁLISIS DE LLUVIAS ---
+                        if analizar_lluvias_check:
+                            with st.spinner("Analizando reportes por lluvias..."):
+                                resultado_lluvias = analizar_lluvias(df_clean, col_incidentes, col_colonias)
+                                
+                                if resultado_lluvias is not None:
+                                    # Agregar conteos de lluvias a los resultados principales
+                                    conteos["Incidentes Relacionados con Lluvias"] = resultado_lluvias['conteo_incidentes_lluvias']
+                                    conteos["Colonias más Afectadas por Lluvias"] = resultado_lluvias['conteo_colonias_lluvias'].head(10)
+                        
                         # Mostrar resultados en la interfaz
                         st.header("3. 📈 Resultados del Análisis")
                         
@@ -300,6 +414,16 @@ def main():
                         with col_met3:
                             total_colonias = df_clean[col_colonias].nunique()
                             st.metric("Colonias Afectadas", total_colonias)
+                        
+                        # Mostrar métricas de lluvias si se analizaron
+                        if analizar_lluvias_check and resultado_lluvias is not None:
+                            col_met4, col_met5, col_met6 = st.columns(3)
+                            with col_met4:
+                                st.metric("Reportes por Lluvias", resultado_lluvias['estadisticas']['total_lluvias'])
+                            with col_met5:
+                                st.metric("% por Lluvias", f"{resultado_lluvias['estadisticas']['porcentaje_lluvias']:.1f}%")
+                            with col_met6:
+                                st.metric("Columna detectada", resultado_lluvias['columna_lluvias'])
                         
                         # Mostrar tablas y gráficas
                         for nombre, conteo in conteos.items():
@@ -317,6 +441,23 @@ def main():
                             # Mostrar gráfica interactiva
                             fig = generar_grafica_plotly(conteo, nombre)
                             st.plotly_chart(fig, use_container_width=True)
+                        
+                        # --- NUEVO: GRÁFICO ESPECIALIZADO DE LLUVIAS ---
+                        if analizar_lluvias_check and resultado_lluvias is not None:
+                            st.subheader("🌧️ Análisis Detallado de Reportes por Lluvias")
+                            
+                            # Gráfico especializado de colonias afectadas por lluvias
+                            fig_lluvias = crear_grafico_lluvias(
+                                resultado_lluvias['conteo_colonias_lluvias'],
+                                "Top 10 Colonias más Afectadas por Lluvias"
+                            )
+                            st.plotly_chart(fig_lluvias, use_container_width=True)
+                            
+                            # Mostrar tabla detallada de incidentes por lluvias
+                            st.subheader("📋 Tipos de Incidentes durante Lluvias")
+                            df_incidentes_lluvias = resultado_lluvias['conteo_incidentes_lluvias'].reset_index()
+                            df_incidentes_lluvias.columns = ['Tipo de Incidente', 'Cantidad durante Lluvias']
+                            st.dataframe(df_incidentes_lluvias, use_container_width=True)
                         
                         # Generar gráficas para el reporte Word
                         st.header("4. 📄 Generando Reportes Descargables")
@@ -364,6 +505,11 @@ def main():
         2. **Selecciona las columnas** correspondientes a incidentes y colonias
         3. **Configura los filtros** si es necesario
         4. **Genera el reporte** y descarga los resultados
+        
+        ### 🌧️ Nueva funcionalidad:
+        - **Análisis de reportes por lluvias**: Activa la opción para ver análisis específico de incidentes relacionados con lluvias
+        - **Detección automática**: El sistema detectará automáticamente si tu dataset contiene información sobre lluvias
+        - **Métricas específicas**: Porcentaje de reportes por lluvias y colonias más afectadas
         """)
 
 if __name__ == "__main__":
