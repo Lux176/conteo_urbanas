@@ -25,47 +25,29 @@ st.set_page_config(
 # --- FUNCIONES DE UTILIDAD ---
 
 def formatear_periodo_es(periodo):
-    """Convierte un objeto Period de pandas a string 'Mes Año' en español"""
     if pd.isna(periodo): return ""
-    meses = {
-        1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
-        5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
-        9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-    }
+    meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 
+             7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
     return f"{meses.get(periodo.month, '')} {periodo.year}"
 
 def limpiar_texto(texto):
-    """Normaliza texto general"""
-    if not isinstance(texto, str):
-        return str(texto).lower().strip()
-    texto_limpio = unicodedata.normalize('NFD', texto).encode('ascii', 'ignore').decode('utf-8').lower().strip()
-    return texto_limpio
+    if not isinstance(texto, str): return str(texto).lower().strip()
+    return unicodedata.normalize('NFD', texto).encode('ascii', 'ignore').decode('utf-8').lower().strip()
 
 def normalizar_genero(texto):
-    """Normaliza género (estricto)"""
     t = limpiar_texto(texto)
     if not t: return None
-    if t in ['hombre', 'masculino', 'm', 'varon', 'caballero', 'el', 'masc']: return 'Masculino'
-    if t in ['mujer', 'femenino', 'f', 'dama', 'senora', 'srta', 'la', 'fem']: return 'Femenino'
+    if t in ['hombre', 'masculino', 'm', 'varon']: return 'Masculino'
+    if t in ['mujer', 'femenino', 'f', 'dama']: return 'Femenino'
     return None
 
 def limpiar_y_categorizar_edad(valor):
-    """Convierte entradas de edad a rangos numéricos"""
     if pd.isna(valor): return None
-    
-    # Intentar extraer números del texto (ej: "25 años" -> 25)
     s = str(valor)
     numeros = re.findall(r'\d+', s)
-    
-    if not numeros:
-        return None
-    
-    try:
-        edad = int(numeros[0])
-    except:
-        return None
-        
-    # Clasificación
+    if not numeros: return None
+    try: edad = int(numeros[0])
+    except: return None
     if edad < 18: return "Menor (0-17)"
     if 18 <= edad <= 29: return "Joven (18-29)"
     if 30 <= edad <= 59: return "Adulto (30-59)"
@@ -89,7 +71,6 @@ def generar_grafica_bar(conteo, titulo, filename):
     if conteo is None or conteo.empty: return None
     df_plot = conteo.reset_index()
     df_plot.columns = ['Categoría', 'Cantidad']
-    
     plt.figure(figsize=(10, 6))
     colors = plt.cm.viridis(np.linspace(0, 1, len(df_plot)))
     bars = plt.bar(df_plot['Categoría'].astype(str), df_plot['Cantidad'], color=colors)
@@ -110,7 +91,6 @@ def generar_grafica_linea_simple(datos, titulo, xlabel, ylabel, filename):
     df_plot.columns = ['Periodo', 'Cantidad']
     df_plot = df_plot.sort_values('Periodo')
     etiquetas_x = [formatear_periodo_es(p) for p in df_plot['Periodo']]
-    
     plt.figure(figsize=(10, 6))
     plt.plot(etiquetas_x, df_plot['Cantidad'], marker='o', linestyle='-', color='teal', linewidth=2)
     plt.title(titulo, fontsize=12, fontweight='bold')
@@ -129,14 +109,12 @@ def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, fil
     plt.figure(figsize=(12, 7))
     grupos = df_long[col_grupo].unique()
     cmap = plt.get_cmap('tab10')
-    
     for i, grupo in enumerate(grupos):
         subset = df_long[df_long[col_grupo] == grupo].sort_values(by=col_x)
         x_vals = [formatear_periodo_es(p) for p in subset[col_x]]
         y_vals = subset[col_y]
         color = cmap(i % 10)
         plt.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=2, label=grupo, color=color)
-    
     plt.title(titulo, fontsize=14, fontweight='bold')
     plt.xlabel("Mes", fontweight='bold')
     plt.ylabel(col_y.title(), fontweight='bold')
@@ -153,7 +131,6 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
     if df_long.empty: return None
     fig, ax = plt.subplots(figsize=(12, 7))
     color_map = {'Masculino': 'blue', 'Femenino': 'purple'}
-    
     for genero in ['Masculino', 'Femenino']:
         subset = df_long[df_long[col_genero] == genero].sort_values(by=col_periodo)
         if subset.empty: continue
@@ -161,11 +138,9 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
         y_vals = subset[col_pct].values
         color = color_map.get(genero, 'grey')
         ax.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=3, label=genero, color=color)
-        
         for x, y in zip(x_vals, y_vals):
             ax.annotate(f'{y:.0f}%', xy=(x, y), xytext=(0, 8), textcoords='offset points',
                         ha='center', va='bottom', fontsize=9, fontweight='bold', color=color)
-    
     ax.set_title(titulo, fontsize=14, fontweight='bold')
     ax.set_xlabel("Mes", fontweight='bold')
     ax.set_ylabel("Porcentaje (%)", fontweight='bold')
@@ -180,26 +155,19 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
     plt.close()
     return path
 
-def generar_grafica_muñequitos_edad(df_data, titulo, filename):
-    """
-    Gráfica de dispersión usando un marcador de texto (muñeco) con tamaño variable.
-    """
+# --- NUEVA FUNCIÓN MATPLOTLIT: CÍRCULOS NEGROS ---
+def generar_grafica_circulos_edad_word(df_data, titulo, filename):
+    """Gráfica de burbujas estática para Word: Círculos negros con texto blanco."""
     if df_data.empty: return None
     
     fig, ax = plt.subplots(figsize=(12, 8))
     
-    # Ejes
     colonias = df_data['Colonia'].unique()
-    rangos = ["Menor (0-17)", "Joven (18-29)", "Adulto (30-59)", "Mayor (60+)"] # Orden lógico
-    
-    # Mapeo de colores para rangos
-    colors = {'Menor (0-17)': '#FF9999', 'Joven (18-29)': '#66B2FF', 
-              'Adulto (30-59)': '#99FF99', 'Mayor (60+)': '#FFCC99'}
+    rangos = ["Menor (0-17)", "Joven (18-29)", "Adulto (30-59)", "Mayor (60+)"]
     
     ax.set_xlim(-0.5, len(colonias) - 0.5)
     ax.set_ylim(-0.5, len(rangos) - 0.5)
     
-    # Mapeo de coordenadas
     col_map = {c: i for i, c in enumerate(colonias)}
     rango_map = {r: i for i, r in enumerate(rangos)}
     
@@ -209,17 +177,15 @@ def generar_grafica_muñequitos_edad(df_data, titulo, filename):
         
         if c_idx is not None and r_idx is not None:
             pct = row['Porcentaje']
-            # Escalar tamaño del muñeco (min 10, max 60)
-            font_size = 10 + (pct * 0.5) 
-            color = colors.get(row['Rango'], 'grey')
+            # Escalar tamaño del círculo (s es área en puntos^2)
+            marker_size = pct * 30 
             
-            # Dibujar Muñeco
-            ax.text(c_idx, r_idx, '👤', ha='center', va='center', 
-                    fontsize=font_size, color=color, fontfamily='DejaVu Sans')
+            # 1. Dibujar círculo negro
+            ax.scatter(c_idx, r_idx, s=marker_size, c='black', alpha=0.9, zorder=3)
             
-            # Dibujar Porcentaje encima de la cabeza
-            ax.text(c_idx, r_idx + 0.2, f"{pct:.0f}%", ha='center', va='bottom', 
-                    fontsize=8, fontweight='bold', color='black')
+            # 2. Dibujar texto blanco en el centro
+            ax.text(c_idx, r_idx, f"{pct:.0f}%", ha='center', va='center', 
+                    fontsize=9, fontweight='bold', color='white', zorder=4)
 
     ax.set_xticks(range(len(colonias)))
     ax.set_xticklabels(colonias, rotation=45, ha='right')
@@ -227,7 +193,7 @@ def generar_grafica_muñequitos_edad(df_data, titulo, filename):
     ax.set_yticklabels(rangos)
     
     ax.set_title(titulo, fontsize=14, fontweight='bold')
-    ax.grid(True, alpha=0.2, linestyle='--')
+    ax.grid(True, alpha=0.2, linestyle='--', zorder=0)
     plt.tight_layout()
     
     path = os.path.join(tempfile.gettempdir(), filename)
@@ -250,10 +216,8 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
     df_plot = df_plot.sort_values(col_periodo)
     df_plot['Mes_Texto'] = df_plot[col_periodo].apply(formatear_periodo_es)
     
-    if es_porcentaje:
-        df_plot['Etiqueta'] = df_plot[col_y].apply(lambda x: f"{x:.1f}%")
-    else:
-        df_plot['Etiqueta'] = df_plot[col_y].astype(str)
+    if es_porcentaje: df_plot['Etiqueta'] = df_plot[col_y].apply(lambda x: f"{x:.1f}%")
+    else: df_plot['Etiqueta'] = df_plot[col_y].astype(str)
 
     color_map = {'Masculino': 'blue', 'Femenino': 'purple'} if (es_porcentaje and col_color) else None
 
@@ -270,51 +234,32 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
     fig.update_xaxes(type='category', title="Mes")
     return fig
 
-def generar_grafica_plotly_muñequitos(df_data, titulo):
-    """Gráfica de burbujas usando texto (emoji) como marcador"""
+# --- NUEVA FUNCIÓN PLOTLY: CÍRCULOS NEGROS ---
+def generar_grafica_plotly_circulos_edad(df_data, titulo):
+    """Gráfica de burbujas interactiva: Círculos negros con texto blanco."""
     if df_data.empty: return px.scatter(title="Sin datos")
     
-    # Crear columna de texto combinado para el hover
-    df_data['Info'] = df_data.apply(lambda x: f"{x['Rango']}: {x['Porcentaje']:.1f}% ({x['Cantidad']} reportes)", axis=1)
+    # Crear el texto que irá dentro del círculo
+    df_data['Texto_Pct'] = df_data['Porcentaje'].apply(lambda x: f"{x:.0f}%")
     
-    # Para Plotly, usamos scatter pero con modo 'text'
-    # El tamaño del texto simula el tamaño del muñeco
-    # Limitamos el tamaño máximo para que no tape todo
-    df_data['Size_Scaled'] = df_data['Porcentaje'].apply(lambda x: 15 + (x * 0.8)) 
-    
-    # Crear figura base
-    fig = px.scatter(df_data, x="Colonia", y="Rango", 
+    fig = px.scatter(df_data, x="Colonia", y="Rango",
+                     size="Porcentaje", # El tamaño depende del porcentaje
+                     text="Texto_Pct",    # El texto es el porcentaje
                      title=titulo,
-                     color="Rango",
-                     color_discrete_map={
-                         'Menor (0-17)': '#FF9999', 'Joven (18-29)': '#66B2FF', 
-                         'Adulto (30-59)': '#99FF99', 'Mayor (60+)': '#FFCC99'
-                     })
+                     # Forzar color negro único
+                     color_discrete_sequence=['black'],
+                     opacity=0.9
+                     )
     
-    # Actualizar trazas para usar el emoji
     fig.update_traces(
-        mode="text",
-        text="👤",
-        textfont_size=df_data['Size_Scaled'], # Tamaño variable
-        hovertemplate="<b>%{x}</b><br>%{y}<br>Porcentaje: %{customdata[0]:.1f}%<extra></extra>",
-        customdata=df_data[['Porcentaje']]
+        mode='markers+text', # Mostrar burbuja y texto
+        textposition='middle center', # Texto centrado
+        textfont=dict(color='white', weight='bold'), # Texto blanco
+        marker=dict(line=dict(width=0)) # Sin borde en el círculo
     )
-    
-    # Añadir el porcentaje como texto fijo ENCIMA (usando otra traza transparente o anotaciones)
-    # Una forma fácil en plotly es añadir otra traza scatter solo con el texto numérico
-    fig.add_trace(go.Scatter(
-        x=df_data['Colonia'], 
-        y=df_data['Rango'],
-        mode="text",
-        text=df_data['Porcentaje'].apply(lambda x: f"{x:.0f}%"),
-        textposition="top center",
-        textfont=dict(size=10, color="black", weight="bold"),
-        showlegend=False,
-        hoverinfo='skip'
-    ))
 
-    fig.update_yaxes(categoryorder='array', categoryarray=["Menor (0-17)", "Joven (18-29)", "Adulto (30-59)", "Mayor (60+)"])
-    fig.update_layout(height=600, plot_bgcolor='white', xaxis_tickangle=-45)
+    fig.update_yaxes(categoryorder='array', categoryarray=["Menor (0-17)", "Joven (18-29)", "Adulto (30-59)", "Mayor (60+)"], title="Rango de Edad Dominante")
+    fig.update_layout(height=600, plot_bgcolor='white', xaxis_tickangle=-45, yaxis_gridcolor='lightgrey')
     
     return fig
 
@@ -355,7 +300,7 @@ def generar_reporte_word(conteos, imagenes):
     doc.add_page_break()
     doc.add_heading('Gráficas Visuales', 1)
     
-    orden = ['General', 'Comparativa Edades por Colonia', 'Tendencia Porcentaje Género', 
+    orden = ['General', 'Rango de Edad Dominante por Colonia', 'Tendencia Porcentaje Género', 
              'Tendencia Incidentes', 'Tendencia Colonias', 
              'Tipos Lluvia', 'Colonias Lluvia', 'Tendencia Tipos Lluvia', 'Tendencia Total Lluvias']
     
@@ -443,8 +388,8 @@ def main():
     graf_linea_inc = col_g1.checkbox("Línea: Tendencia Top 10 Incidentes", value=False)
     graf_linea_col = col_g2.checkbox("Línea: Tendencia Top 10 Colonias", value=False)
     
-    # NUEVO CHECKBOX
-    graf_edad_colonia = col_g1.checkbox("Muñequitos: Comparativa Edades por Colonia", value=False)
+    # CHECKBOX ACTUALIZADO
+    graf_edad_colonia = col_g1.checkbox("Círculos: Rango de Edad Dominante por Colonia", value=False)
 
     # Validaciones
     if (graf_linea_inc or graf_linea_col or graf_pct_genero) and not col_fecha:
@@ -468,7 +413,6 @@ def main():
                 st.error("Sin datos tras filtros.")
                 return
 
-            # Fechas
             valid_fechas = False
             if col_fecha:
                 df_c['fecha_p'] = df_c[col_fecha].apply(parsear_fecha)
@@ -483,7 +427,6 @@ def main():
             }
             imgs = {}
 
-            # Lluvias
             res_lluv = None
             if check_lluvias and col_lluvias:
                 res_lluv = analizar_lluvias_manual(df_c, col_lluvias, col_col, col_inc)
@@ -491,12 +434,10 @@ def main():
                     conteos["Tipos de Incidentes en Lluvias"] = res_lluv['conteo_incidentes']
                     conteos["Colonias Afectadas por Lluvias"] = res_lluv['conteo_colonias']
             
-            # Género
             if col_genero:
                  df_c['genero_norm'] = df_c[col_genero].apply(normalizar_genero)
                  conteos["Desglose por Género"] = df_c['genero_norm'].fillna('No id').value_counts()
 
-            # Edad
             if col_edad:
                 df_c['edad_cat'] = df_c[col_edad].apply(limpiar_y_categorizar_edad)
                 conteos["Desglose por Rango Edad"] = df_c['edad_cat'].value_counts()
@@ -508,35 +449,35 @@ def main():
             c2.metric("Tipos", df_c[col_inc].nunique())
             if res_lluv: c3.metric("Lluvia", res_lluv['estadisticas']['total_lluvias'])
             
-            # Barras General
             st.subheader("Vista General")
             top_gen = conteos["General"].head(15)
             st.plotly_chart(generar_grafica_plotly_bar(top_gen, "Top Incidentes"), use_container_width=True)
             imgs["General"] = generar_grafica_bar(top_gen, "Top Incidentes", "g1.png")
 
-            # --- GRÁFICA MUÑEQUITOS (EDAD POR COLONIA) ---
+            # --- GRÁFICA CÍRCULOS EDAD (SOLO EL MAYOR) ---
             if col_edad and graf_edad_colonia:
-                st.subheader("👥 Rangos de Edad por Colonia (Top 10)")
+                st.subheader("⚫ Rango de Edad Dominante por Colonia (Top 10)")
                 try:
-                    # 1. Filtrar top 10 colonias para no saturar
                     top10_c = conteos["Colonias"].head(10).index.tolist()
                     df_edad = df_c[df_c[col_col].isin(top10_c) & df_c['edad_cat'].notna()].copy()
                     
                     if not df_edad.empty:
-                        # 2. Agrupar
+                        # 1. Agrupar por colonia y rango
                         grp_edad = df_edad.groupby([col_col, 'edad_cat']).size().reset_index(name='Cantidad')
                         
-                        # 3. Calcular Totales por Colonia para sacar %
+                        # 2. Calcular totales por colonia para el %
                         total_por_colonia = df_edad.groupby(col_col).size().reset_index(name='Total_Col')
                         grp_edad = pd.merge(grp_edad, total_por_colonia, on=col_col)
                         grp_edad['Porcentaje'] = (grp_edad['Cantidad'] / grp_edad['Total_Col']) * 100
-                        
-                        # Renombrar para facilitar
                         grp_edad.rename(columns={col_col: 'Colonia', 'edad_cat': 'Rango'}, inplace=True)
                         
+                        # 3. FILTRADO CLAVE: Mantener solo el rango con MAYOR porcentaje por colonia
+                        grp_edad = grp_edad.sort_values(['Colonia', 'Porcentaje'], ascending=[True, False])
+                        grp_edad_max = grp_edad.drop_duplicates(subset=['Colonia'], keep='first')
+                        
                         # 4. Graficar
-                        st.plotly_chart(generar_grafica_plotly_muñequitos(grp_edad, "Distribución de Edades por Colonia"), use_container_width=True)
-                        imgs["Comparativa Edades por Colonia"] = generar_grafica_muñequitos_edad(grp_edad, "Edad por Colonia (Tamaño = %)", "g_edad_doll.png")
+                        st.plotly_chart(generar_grafica_plotly_circulos_edad(grp_edad_max, "Rango de Edad Dominante por Colonia"), use_container_width=True)
+                        imgs["Rango de Edad Dominante por Colonia"] = generar_grafica_circulos_edad_word(grp_edad_max, "Rango de Edad Dominante (Círculo Negro = % Mayor)", "g_edad_circ.png")
                     else:
                         st.warning("No hay datos de edad suficientes en las top 10 colonias.")
                 except Exception as e:
@@ -559,7 +500,6 @@ def main():
                          st.warning("Datos de género insuficientes.")
                 except Exception as e: st.error(f"Error género: {e}")
             
-            # Líneas Tendencia
             if valid_fechas:
                 if graf_linea_inc:
                     try:
@@ -583,7 +523,6 @@ def main():
                             imgs["Tendencia Colonias"] = generar_grafica_linea_multiple(data_linea_c, 'mes', 'conteo', col_col, "Comparativa Colonias", "l_col.png")
                     except: pass
 
-            # Lluvias
             if res_lluv:
                 st.markdown("---")
                 st.header("🌧️ Análisis Lluvias")
