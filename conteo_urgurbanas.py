@@ -50,7 +50,7 @@ def parsear_fecha(fecha):
 
 def generar_grafica_bar(conteo, titulo, filename):
     """Gráfica de BARRAS para Word"""
-    if conteo.empty: return None
+    if conteo is None or conteo.empty: return None
     df_plot = conteo.reset_index()
     df_plot.columns = ['Categoría', 'Cantidad']
     
@@ -69,24 +69,41 @@ def generar_grafica_bar(conteo, titulo, filename):
     plt.close()
     return path
 
+def generar_grafica_linea_simple(datos, titulo, xlabel, ylabel, filename):
+    """Genera gráfica de UNA sola línea para Word"""
+    if datos.empty: return None
+    
+    df_plot = datos.reset_index()
+    df_plot.columns = ['Fecha', 'Cantidad']
+    df_plot['Fecha'] = df_plot['Fecha'].astype(str)
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(df_plot['Fecha'], df_plot['Cantidad'], marker='o', linestyle='-', color='blue', linewidth=2)
+    
+    plt.title(titulo, fontsize=12, fontweight='bold')
+    plt.xlabel(xlabel, fontweight='bold')
+    plt.ylabel(ylabel, fontweight='bold')
+    plt.xticks(rotation=45, ha='right', fontsize=8)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    path = os.path.join(tempfile.gettempdir(), filename)
+    plt.savefig(path, dpi=200, bbox_inches='tight')
+    plt.close()
+    return path
+
 def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, filename):
     """Genera gráfica de LÍNEAS COMPARATIVAS (Top 10) para Word"""
     if df_long.empty: return None
     
-    plt.figure(figsize=(12, 7)) # Más ancho para la leyenda
-    
-    # Obtener grupos únicos (Top 10)
+    plt.figure(figsize=(12, 7))
     grupos = df_long[col_grupo].unique()
-    
-    # Colores distintos
-    cmap = plt.get_cmap('tab10') # Paleta de 10 colores
+    cmap = plt.get_cmap('tab10')
     
     for i, grupo in enumerate(grupos):
         subset = df_long[df_long[col_grupo] == grupo].sort_values(by=col_x)
-        # Convertir periodo a string para graficar
         x_vals = subset[col_x].astype(str)
         y_vals = subset[col_y]
-        
         color = cmap(i % 10)
         plt.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=2, label=grupo, color=color)
     
@@ -95,45 +112,47 @@ def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, fil
     plt.ylabel("Cantidad", fontweight='bold')
     plt.xticks(rotation=45, ha='right', fontsize=8)
     plt.grid(True, alpha=0.3)
-    
-    # Leyenda fuera de la gráfica para no tapar datos
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., fontsize='small', title="Top 10")
-    
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., fontsize='small', title="Categorías")
     plt.tight_layout()
+    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
     return path
 
 def generar_grafica_plotly_bar(conteo, titulo):
-    if conteo.empty: return px.bar(title="Sin datos")
+    if conteo is None or conteo.empty: return px.bar(title="Sin datos")
     df_plot = conteo.reset_index()
     df_plot.columns = ['Categoría', 'Cantidad']
     fig = px.bar(df_plot, x='Categoría', y='Cantidad', title=titulo, color='Cantidad')
     return fig
 
 def generar_grafica_plotly_linea(df_long, col_x, col_y, col_color, titulo):
-    """Gráfica de líneas interactiva comparativa"""
     if df_long.empty: return px.line(title="Sin datos")
-    # Convertir periodo a string
     df_plot = df_long.copy()
     df_plot[col_x] = df_plot[col_x].astype(str)
-    
-    fig = px.line(df_plot, x=col_x, y=col_y, color=col_color, title=titulo, markers=True)
+    if col_color:
+        fig = px.line(df_plot, x=col_x, y=col_y, color=col_color, title=titulo, markers=True)
+    else:
+        fig = px.line(df_plot, x=col_x, y=col_y, title=titulo, markers=True)
     return fig
 
 # --- FUNCIONES AUXILIARES ---
-def analizar_lluvias_manual(df, col_lluvias, col_colonias, col_fecha=None, col_hora=None):
+def analizar_lluvias_manual(df, col_lluvias, col_colonias, col_inc):
     if df.empty: return None
     df_l = df.copy()
+    
+    # Filtrar solo lluvias
     df_l[col_lluvias] = df_l[col_lluvias].astype(str).str.lower().str.strip()
     positivos = ['sí', 'si', 'yes', 'true', '1', 'afirmativo', 'lluvia']
     df_l = df_l[df_l[col_lluvias].isin(positivos)]
+    
     if df_l.empty: return None
     
     return {
+        'df_filtrado': df_l, # Regresamos el DF filtrado para hacer gráficas de tiempo
         'conteo_colonias': df_l[col_colonias].value_counts(),
-        'conteo_incidentes': df_l[st.session_state.col_incidentes].value_counts() if 'col_incidentes' in st.session_state else None,
+        'conteo_incidentes': df_l[col_inc].value_counts(),
         'estadisticas': {'total_lluvias': len(df_l), 'porcentaje': (len(df_l)/len(df))*100}
     }
 
@@ -207,21 +226,22 @@ def main():
     c1, c2 = st.columns(2)
     col_inc = c1.selectbox("Columna INCIDENTES:", df.columns)
     col_col = c2.selectbox("Columna COLONIAS:", df.columns)
-    if col_inc: st.session_state.col_incidentes = col_inc
     
     col_fecha = st.selectbox("Columna FECHAS (Necesaria para gráficas de línea):", ["No usar"]+list(df.columns))
     if col_fecha == "No usar": col_fecha = None
     
     # Lluvias
-    check_lluvias = st.checkbox("Analizar Lluvias")
-    col_lluvias = st.selectbox("Columna Lluvia:", df.columns) if check_lluvias else None
+    st.subheader("🌧️ Análisis de Lluvias")
+    check_lluvias = st.checkbox("Analizar Reportes de Lluvias")
+    col_lluvias = None
+    if check_lluvias:
+        col_lluvias = st.selectbox("Columna Indicador Lluvia (Sí/No, 1/0):", df.columns)
 
     # Filtros extra
     st.markdown("---")
-    st.subheader("🛠️ Filtros y Gráficas")
+    st.subheader("🛠️ Filtros y Gráficas Avanzadas")
     ignorar_medica = st.checkbox("Ignorar 'Atención Médica'", value=True)
     
-    # Checkboxes Gráficas Avanzadas
     graf_top10 = st.checkbox("Gráfica Top 10 Incidentes (Barras)", value=True)
     graf_linea_inc = st.checkbox("Comparativa Línea de Tiempo: Top 10 Incidentes", value=False)
     graf_linea_col = st.checkbox("Comparativa Línea de Tiempo: Top 10 Colonias", value=False)
@@ -253,80 +273,115 @@ def main():
                 else:
                     st.error("No se pudieron leer las fechas.")
             
-            # Conteos
+            # Conteos Generales
             conteos = {
                 "General": df_c[col_inc].value_counts(),
                 "Colonias": df_c[col_col].value_counts()
             }
-            
-            # Lluvias
-            res_lluv = analizar_lluvias_manual(df_c, col_lluvias, col_col) if (check_lluvias and col_lluvias) else None
-            if res_lluv:
-                conteos["Lluvias (Colonia)"] = res_lluv['conteo_colonias']
-
-            # --- RESULTADOS ---
-            st.header("3. Resultados")
-            c1, c2 = st.columns(2)
-            c1.metric("Incidentes", len(df_c))
-            c2.metric("Tipos", df_c[col_inc].nunique())
-
             imgs = {}
+
+            # ANÁLISIS DE LLUVIAS
+            res_lluv = None
+            if check_lluvias and col_lluvias:
+                res_lluv = analizar_lluvias_manual(df_c, col_lluvias, col_col, col_inc)
+                if res_lluv:
+                    # Agregar a tablas del reporte
+                    conteos["Tipos de Incidentes en Lluvias"] = res_lluv['conteo_incidentes']
+                    conteos["Colonias Afectadas por Lluvias"] = res_lluv['conteo_colonias']
+
+            # --- VISUALIZACIÓN ---
+            st.header("3. Resultados")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Incidentes Totales", len(df_c))
+            c2.metric("Tipos Únicos", df_c[col_inc].nunique())
+            if res_lluv:
+                c3.metric("Reportes Lluvia", res_lluv['estadisticas']['total_lluvias'])
             
-            # A) Barras General
-            st.subheader("Top Incidentes")
+            # 1. BARRAS GENERALES
+            st.subheader("General")
             top_gen = conteos["General"].head(15)
             st.plotly_chart(generar_grafica_plotly_bar(top_gen, "Top Incidentes"), use_container_width=True)
             imgs["General"] = generar_grafica_bar(top_gen, "Top Incidentes", "g1.png")
             
-            # B) Línea Comparativa Incidentes (Top 10)
-            if graf_linea_inc and valid_fechas:
-                st.subheader("📈 Tendencia Top 10 Incidentes")
-                try:
-                    # 1. Identificar Top 10
-                    top10_nombres = conteos["General"].head(10).index.tolist()
-                    # 2. Filtrar DF original
-                    df_top = df_c[df_c[col_inc].isin(top10_nombres)].copy()
-                    df_top['mes'] = df_top['fecha_p'].dt.to_period('M')
-                    # 3. Agrupar
-                    data_linea = df_top.groupby(['mes', col_inc]).size().reset_index(name='conteo')
-                    
-                    if not data_linea.empty:
-                        # Streamlit
-                        st.plotly_chart(generar_grafica_plotly_linea(data_linea, 'mes', 'conteo', col_inc, "Evolución Top 10 Incidentes"), use_container_width=True)
-                        # Word
-                        imgs["Tendencia Incidentes"] = generar_grafica_linea_multiple(
-                            data_linea, 'mes', 'conteo', col_inc, "Comparativa Mensual: Top 10 Incidentes", "linea_inc.png"
-                        )
-                except Exception as e:
-                    st.error(f"Error en gráfica línea incidentes: {e}")
+            # 2. LÍNEAS DE TENDENCIA (GENERALES)
+            if valid_fechas:
+                if graf_linea_inc:
+                    try:
+                        top10_names = conteos["General"].head(10).index.tolist()
+                        df_top = df_c[df_c[col_inc].isin(top10_names)].copy()
+                        df_top['mes'] = df_top['fecha_p'].dt.to_period('M')
+                        data_linea = df_top.groupby(['mes', col_inc]).size().reset_index(name='conteo')
+                        
+                        if not data_linea.empty:
+                            st.subheader("📈 Tendencia Incidentes (Top 10)")
+                            st.plotly_chart(generar_grafica_plotly_linea(data_linea, 'mes', 'conteo', col_inc, "Evolución Incidentes"), use_container_width=True)
+                            imgs["Tendencia Incidentes"] = generar_grafica_linea_multiple(data_linea, 'mes', 'conteo', col_inc, "Comparativa: Top 10 Incidentes", "l_inc.png")
+                    except: pass
+                
+                if graf_linea_col:
+                    try:
+                        top10_cols = conteos["Colonias"].head(10).index.tolist()
+                        df_top_c = df_c[df_c[col_col].isin(top10_cols)].copy()
+                        df_top_c['mes'] = df_top_c['fecha_p'].dt.to_period('M')
+                        data_linea_c = df_top_c.groupby(['mes', col_col]).size().reset_index(name='conteo')
+                        
+                        if not data_linea_c.empty:
+                            st.subheader("📈 Tendencia Colonias (Top 10)")
+                            st.plotly_chart(generar_grafica_plotly_linea(data_linea_c, 'mes', 'conteo', col_col, "Evolución Colonias"), use_container_width=True)
+                            imgs["Tendencia Colonias"] = generar_grafica_linea_multiple(data_linea_c, 'mes', 'conteo', col_col, "Comparativa: Top 10 Colonias", "l_col.png")
+                    except: pass
 
-            # C) Línea Comparativa Colonias (Top 10)
-            if graf_linea_col and valid_fechas:
-                st.subheader("📈 Tendencia Top 10 Colonias")
-                try:
-                    top10_cols = conteos["Colonias"].head(10).index.tolist()
-                    df_top_c = df_c[df_c[col_col].isin(top10_cols)].copy()
-                    df_top_c['mes'] = df_top_c['fecha_p'].dt.to_period('M')
-                    
-                    data_linea_c = df_top_c.groupby(['mes', col_col]).size().reset_index(name='conteo')
-                    
-                    if not data_linea_c.empty:
-                        st.plotly_chart(generar_grafica_plotly_linea(data_linea_c, 'mes', 'conteo', col_col, "Evolución Top 10 Colonias"), use_container_width=True)
-                        imgs["Tendencia Colonias"] = generar_grafica_linea_multiple(
-                            data_linea_c, 'mes', 'conteo', col_col, "Comparativa Mensual: Top 10 Colonias", "linea_col.png"
-                        )
-                except Exception as e:
-                    st.error(f"Error en gráfica línea colonias: {e}")
-
-            # Lluvias
+            # 3. GRÁFICAS DE LLUVIAS (NUEVO)
             if res_lluv:
-                st.subheader("Lluvias")
-                top_lluv = res_lluv['conteo_colonias'].head(10)
-                st.plotly_chart(generar_grafica_plotly_bar(top_lluv, "Lluvias por Colonia"), use_container_width=True)
-                imgs["Lluvias"] = generar_grafica_bar(top_lluv, "Lluvias", "g_lluv.png")
+                st.markdown("---")
+                st.header("🌧️ Análisis Detallado de Lluvias")
+                
+                # A) Tipos de Reporte en Lluvias
+                st.subheader("Tipos de Incidentes durante Lluvias")
+                top_inc_lluv = res_lluv['conteo_incidentes'].head(15)
+                st.plotly_chart(generar_grafica_plotly_bar(top_inc_lluv, "Tipos de Reporte (Lluvias)"), use_container_width=True)
+                # Agregar a Word
+                imgs["Tipos Lluvia"] = generar_grafica_bar(top_inc_lluv, "Tipos de Reporte en Lluvias", "g_inc_lluv.png")
+                
+                # B) Colonias en Lluvias
+                st.subheader("Colonias Afectadas por Lluvias")
+                top_col_lluv = res_lluv['conteo_colonias'].head(15)
+                st.plotly_chart(generar_grafica_plotly_bar(top_col_lluv, "Colonias (Lluvias)"), use_container_width=True)
+                imgs["Colonias Lluvia"] = generar_grafica_bar(top_col_lluv, "Colonias en Lluvias", "g_col_lluv.png")
+                
+                # C) Tendencia de Lluvias (Línea)
+                if valid_fechas:
+                    df_lluvia_t = res_lluv['df_filtrado'].copy()
+                    df_lluvia_t['mes'] = df_lluvia_t['fecha_p'].dt.to_period('M')
+
+                    # --- NUEVO: Gráfica comparativa de TIPOS de reporte EN LLUVIAS ---
+                    try:
+                        # Top 5 incidentes en lluvias
+                        top5_inc_lluvia = res_lluv['conteo_incidentes'].head(5).index.tolist()
+                        df_top_lluvia = df_lluvia_t[df_lluvia_t[col_inc].isin(top5_inc_lluvia)]
+                        
+                        if not df_top_lluvia.empty:
+                            data_linea_lluvia = df_top_lluvia.groupby(['mes', col_inc]).size().reset_index(name='conteo')
+                            if not data_linea_lluvia.empty:
+                                st.subheader("📈 Tendencia por Tipo de Incidente (Solo Lluvias)")
+                                st.plotly_chart(generar_grafica_plotly_linea(data_linea_lluvia, 'mes', 'conteo', col_inc, "Evolución Tipos de Reporte (Lluvias)"), use_container_width=True)
+                                
+                                # Agregar a Word la gráfica MULTILÍNEA
+                                imgs["Tendencia Tipos Lluvia"] = generar_grafica_linea_multiple(
+                                    data_linea_lluvia, 'mes', 'conteo', col_inc, 
+                                    "Evolución Tipos de Reporte (Lluvias)", "l_tipo_lluv.png"
+                                )
+                    except: pass
+                    
+                    # Gráfica de volumen TOTAL de lluvias (La que ya tenías)
+                    try:
+                        data_total_lluvia = df_lluvia_t.groupby('mes').size().reset_index(name='conteo')
+                        if not data_total_lluvia.empty:
+                            imgs["Tendencia Total Lluvias"] = generar_grafica_linea_simple(data_total_lluvia.set_index('mes')['conteo'], "Volumen Total de Reportes por Lluvia", "Mes", "Cantidad", "l_total_lluv.png")
+                    except: pass
 
             # Descargas
-            st.success("✅ Hecho")
+            st.success("✅ Reporte Generado Exitosamente")
             c1, c2 = st.columns(2)
             c1.markdown(get_link(generar_reporte_word(conteos, imgs), "Word"), unsafe_allow_html=True)
             c2.markdown(get_link(generar_txt(conteos), "Txt"), unsafe_allow_html=True)
