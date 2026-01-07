@@ -14,15 +14,17 @@ from io import BytesIO
 import unicodedata
 import base64
 import re
+import traceback # Para ver el error real
 
-# --- LIBRERÍAS DE MAPAS ---
+# --- CONTROL DE LIBRERÍAS DE MAPAS ---
+HAS_MAPS = False
 try:
     import geopandas as gpd
     import folium
     from streamlit_folium import st_folium
-    from folium.plugins import HeatMap
+    HAS_MAPS = True
 except ImportError:
-    st.error("⚠️ Faltan librerías de mapas. Instala: pip install geopandas folium streamlit-folium")
+    HAS_MAPS = False
 
 # Configuración de la página
 st.set_page_config(
@@ -173,34 +175,19 @@ def generar_grafica_circulos_edad_word(df_data, titulo, filename):
     plt.close()
     return path
 
-# --- NUEVA FUNCIÓN: MAPA HEATMAP ESTÁTICO (WORD) ---
 def generar_mapa_estatico_word(gdf_merged, titulo, filename):
-    """
-    Genera una imagen estática del mapa choropleth usando Geopandas y Matplotlib.
-    Usa una paleta 'Reds' o similar para simular el tono vino.
-    """
     if gdf_merged.empty: return None
-    
     fig, ax = plt.subplots(figsize=(10, 10))
-    
-    # 1. Dibujar el mapa base (todas las colonias en gris claro por si no tienen datos)
     gdf_merged.plot(ax=ax, color='#f0f0f0', edgecolor='grey', linewidth=0.5)
-    
-    # 2. Dibujar el heatmap (Choropleth)
-    # cmap='RdPu' o 'Reds' o 'YlOrRd'. Para "Vino", 'RdPu' o 'PuRd' funciona bien, o 'Reds' oscuros.
-    # Vamos a usar 'Reds' que es clásico para calor, los valores altos serán rojo oscuro/vino.
     gdf_merged.plot(column='cantidad', ax=ax, cmap='Reds', legend=True,
-                    legend_kwds={'label': "Cantidad de Reportes", 'orientation': "horizontal"},
+                    legend_kwds={'label': "Cantidad", 'orientation': "horizontal"},
                     edgecolor='black', linewidth=0.2, alpha=0.9)
-    
     ax.set_title(titulo, fontsize=14, fontweight='bold')
-    ax.set_axis_off() # Quitar ejes lat/lon
-    
+    ax.set_axis_off()
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
     return path
-
 
 # --- FUNCIONES DE GRÁFICAS INTERACTIVAS (STREAMLIT) ---
 
@@ -279,7 +266,6 @@ def generar_reporte_word(conteos, imagenes):
     doc.add_page_break()
     doc.add_heading('Gráficas Visuales', 1)
     
-    # Orden de aparición
     orden = ['General', 'Mapa de Calor (Colonias)', 'Rango de Edad Dominante por Colonia', 
              'Tendencia Porcentaje Género', 'Tendencia Incidentes', 'Tendencia Colonias', 
              'Tipos Lluvia', 'Colonias Lluvia', 'Tendencia Tipos Lluvia', 'Tendencia Total Lluvias']
@@ -321,6 +307,10 @@ def get_link(path, label):
 def main():
     st.title("📊 Analizador de Urgencias Operativas")
     
+    # Checkeo de librerías
+    if not HAS_MAPS:
+        st.warning("⚠️ Las librerías 'geopandas' y 'folium' no están instaladas o fallaron al cargar. La función de Mapas estará deshabilitada.")
+
     # 1. CARGA
     st.header("1. Datos")
     f = st.file_uploader("Archivo (CSV/Excel)", type=['csv','xlsx'])
@@ -368,22 +358,20 @@ def main():
     graf_linea_col = col_g2.checkbox("Línea: Tendencia Top 10 Colonias", value=False)
     graf_edad_colonia = col_g1.checkbox("Círculos: Rango de Edad Dominante por Colonia", value=False)
     
-    # --- NUEVO: HEATMAP CONFIG ---
+    # HEATMAP CONFIG
     st.subheader("🗺️ Mapa de Calor (Heatmap)")
-    graf_heatmap = st.checkbox("Generar Mapa de Calor por Colonia", value=False)
+    graf_heatmap = st.checkbox("Generar Mapa de Calor por Colonia", value=False, disabled=not HAS_MAPS)
     geo_file = None
     col_geo_nombre = None
     
-    if graf_heatmap:
+    if graf_heatmap and HAS_MAPS:
         st.info("Sube el archivo GeoJSON con los límites de las colonias.")
         geo_file = st.file_uploader("Archivo GeoJSON", type=['geojson', 'json'])
         if geo_file:
             try:
-                # Leer GeoJSON preliminarmente para obtener columnas
                 gdf_temp = gpd.read_file(geo_file)
                 st.success("GeoJSON cargado correctamente.")
                 col_geo_nombre = st.selectbox("Selecciona la columna del GeoJSON con el NOMBRE de la colonia:", gdf_temp.columns)
-                # Volver al inicio del archivo para lectura limpia después
                 geo_file.seek(0)
             except Exception as e:
                 st.error(f"Error leyendo GeoJSON: {e}")
@@ -394,205 +382,207 @@ def main():
 
     # 3. PROCESAR
     if st.button("🚀 Generar Reporte", type="primary"):
-        with st.spinner("Procesando..."):
-            df_c = df.copy()
-            df_c[col_inc] = df_c[col_inc].apply(limpiar_texto)
-            df_c[col_col] = df_c[col_col].apply(limpiar_texto)
-            
-            if ignorar_medica:
-                df_c = df_c[df_c[col_inc] != "atencion medica"]
-            
-            if df_c.empty:
-                st.error("Sin datos tras filtros.")
-                return
+        # --- BLOQUE TRY-EXCEPT PARA EVITAR QUE SE CONGELE ---
+        try:
+            with st.spinner("Procesando datos... Por favor espera."):
+                st.write("Estado: Iniciando procesamiento...")
+                
+                df_c = df.copy()
+                df_c[col_inc] = df_c[col_inc].apply(limpiar_texto)
+                df_c[col_col] = df_c[col_col].apply(limpiar_texto)
+                
+                if ignorar_medica:
+                    df_c = df_c[df_c[col_inc] != "atencion medica"]
+                
+                if df_c.empty:
+                    st.error("Sin datos tras filtros.")
+                    st.stop() # Detener ejecución limpiamente
 
-            valid_fechas = False
-            if col_fecha:
-                df_c['fecha_p'] = df_c[col_fecha].apply(parsear_fecha)
-                if df_c['fecha_p'].notna().sum() > 0:
-                    valid_fechas = True
-                    df_c = df_c.dropna(subset=['fecha_p'])
-                    df_c['mes'] = df_c['fecha_p'].dt.to_period('M')
-            
-            conteos = {
-                "General": df_c[col_inc].value_counts(),
-                "Colonias": df_c[col_col].value_counts()
-            }
-            imgs = {}
+                st.write("Estado: Procesando fechas...")
+                valid_fechas = False
+                if col_fecha:
+                    df_c['fecha_p'] = df_c[col_fecha].apply(parsear_fecha)
+                    if df_c['fecha_p'].notna().sum() > 0:
+                        valid_fechas = True
+                        df_c = df_c.dropna(subset=['fecha_p'])
+                        df_c['mes'] = df_c['fecha_p'].dt.to_period('M')
+                
+                conteos = {
+                    "General": df_c[col_inc].value_counts(),
+                    "Colonias": df_c[col_col].value_counts()
+                }
+                imgs = {}
 
-            res_lluv = None
-            if check_lluvias and col_lluvias:
-                res_lluv = analizar_lluvias_manual(df_c, col_lluvias, col_col, col_inc)
-                if res_lluv:
-                    conteos["Tipos de Incidentes en Lluvias"] = res_lluv['conteo_incidentes']
-                    conteos["Colonias Afectadas por Lluvias"] = res_lluv['conteo_colonias']
-            
-            if col_genero:
-                 df_c['genero_norm'] = df_c[col_genero].apply(normalizar_genero)
-                 conteos["Desglose por Género"] = df_c['genero_norm'].fillna('No id').value_counts()
+                st.write("Estado: Analizando lluvias...")
+                res_lluv = None
+                if check_lluvias and col_lluvias:
+                    res_lluv = analizar_lluvias_manual(df_c, col_lluvias, col_col, col_inc)
+                    if res_lluv:
+                        conteos["Tipos de Incidentes en Lluvias"] = res_lluv['conteo_incidentes']
+                        conteos["Colonias Afectadas por Lluvias"] = res_lluv['conteo_colonias']
+                
+                if col_genero:
+                     df_c['genero_norm'] = df_c[col_genero].apply(normalizar_genero)
+                     conteos["Desglose por Género"] = df_c['genero_norm'].fillna('No id').value_counts()
 
-            if col_edad:
-                df_c['edad_cat'] = df_c[col_edad].apply(limpiar_y_categorizar_edad)
-                conteos["Desglose por Rango Edad"] = df_c['edad_cat'].value_counts()
+                if col_edad:
+                    df_c['edad_cat'] = df_c[col_edad].apply(limpiar_y_categorizar_edad)
+                    conteos["Desglose por Rango Edad"] = df_c['edad_cat'].value_counts()
 
-            # --- RESULTADOS ---
-            st.header("3. Resultados")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total", len(df_c))
-            c2.metric("Tipos", df_c[col_inc].nunique())
-            if res_lluv: c3.metric("Lluvia", res_lluv['estadisticas']['total_lluvias'])
-            
-            # --- MAPA DE CALOR (HEATMAP) ---
-            if graf_heatmap and geo_file and col_geo_nombre:
-                try:
-                    # 1. Preparar datos del CSV
-                    conteo_cols = df_c[col_col].value_counts().reset_index()
-                    conteo_cols.columns = ['nombre_norm', 'cantidad']
-                    
-                    # 2. Preparar GeoJSON
-                    gdf = gpd.read_file(geo_file)
-                    # Normalizar nombre en GeoJSON para el cruce
-                    gdf['nombre_norm'] = gdf[col_geo_nombre].apply(limpiar_texto)
-                    
-                    # 3. Merge (Left merge para mantener geometría aunque no haya reportes)
-                    gdf_merged = gdf.merge(conteo_cols, on='nombre_norm', how='left')
-                    gdf_merged['cantidad'] = gdf_merged['cantidad'].fillna(0)
-                    
-                    st.subheader("🗺️ Mapa de Calor: Densidad de Reportes")
-                    
-                    # Interactivo (Folium)
-                    m = folium.Map(location=[gdf_merged.geometry.centroid.y.mean(), gdf_merged.geometry.centroid.x.mean()], zoom_start=13)
-                    
-                    # Choropleth "Vino" (YlOrRd o Reds funciona, pero personalizado es mejor)
-                    folium.Choropleth(
-                        geo_data=gdf_merged,
-                        name="Choropleth",
-                        data=gdf_merged,
-                        columns=['nombre_norm', 'cantidad'],
-                        key_on='feature.properties.nombre_norm',
-                        fill_color='YlOrRd', # De amarillo a rojo oscuro (vino)
-                        fill_opacity=0.8,
-                        line_opacity=0.2,
-                        legend_name='Cantidad de Reportes'
-                    ).add_to(m)
-                    
-                    # Tooltip
-                    folium.GeoJson(
-                        gdf_merged,
-                        style_function=lambda x: {'fillColor': '#00000000', 'color': '#00000000'},
-                        tooltip=folium.GeoJsonTooltip(fields=[col_geo_nombre, 'cantidad'], aliases=['Colonia:', 'Reportes:'])
-                    ).add_to(m)
-
-                    st_folium(m, width=800, height=500)
-                    
-                    # Estático (Word) - Matplotlib
-                    imgs["Mapa de Calor (Colonias)"] = generar_mapa_estatico_word(gdf_merged, "Densidad de Reportes por Colonia", "mapa_calor.png")
-
-                except Exception as e:
-                    st.error(f"Error generando mapa: {e}")
-
-
-            st.subheader("Vista General")
-            top_gen = conteos["General"].head(15)
-            st.plotly_chart(generar_grafica_plotly_bar(top_gen, "Top Incidentes"), use_container_width=True)
-            imgs["General"] = generar_grafica_bar(top_gen, "Top Incidentes", "g1.png")
-
-            # Círculos Edad
-            if col_edad and graf_edad_colonia:
-                st.subheader("⚫ Rango de Edad Dominante por Colonia (Top 10)")
-                try:
-                    top10_c = conteos["Colonias"].head(10).index.tolist()
-                    df_edad = df_c[df_c[col_col].isin(top10_c) & df_c['edad_cat'].notna()].copy()
-                    if not df_edad.empty:
-                        grp_edad = df_edad.groupby([col_col, 'edad_cat']).size().reset_index(name='Cantidad')
-                        total_por_colonia = df_edad.groupby(col_col).size().reset_index(name='Total_Col')
-                        grp_edad = pd.merge(grp_edad, total_por_colonia, on=col_col)
-                        grp_edad['Porcentaje'] = (grp_edad['Cantidad'] / grp_edad['Total_Col']) * 100
-                        grp_edad.rename(columns={col_col: 'Colonia', 'edad_cat': 'Rango'}, inplace=True)
-                        
-                        grp_edad = grp_edad.sort_values(['Colonia', 'Porcentaje'], ascending=[True, False])
-                        grp_edad_max = grp_edad.drop_duplicates(subset=['Colonia'], keep='first')
-                        
-                        st.plotly_chart(generar_grafica_plotly_circulos_edad(grp_edad_max, "Rango de Edad Dominante por Colonia"), use_container_width=True)
-                        imgs["Rango de Edad Dominante por Colonia"] = generar_grafica_circulos_edad_word(grp_edad_max, "Rango de Edad Dominante (Círculo Negro = % Mayor)", "g_edad_circ.png")
-                    else: st.warning("No hay datos de edad suficientes.")
-                except Exception as e: st.error(f"Error edad: {e}")
-
-            # Género
-            if valid_fechas and col_genero and graf_pct_genero:
-                try:
-                    df_gen = df_c[df_c['genero_norm'].isin(['Masculino', 'Femenino'])].copy()
-                    if not df_gen.empty:
-                        conteo_gen_mes = df_gen.groupby(['mes', 'genero_norm']).size().reset_index(name='cuenta')
-                        total_mes = df_gen.groupby('mes').size().reset_index(name='total_mes')
-                        df_pct_gen = pd.merge(conteo_gen_mes, total_mes, on='mes')
-                        df_pct_gen['porcentaje'] = (df_pct_gen['cuenta'] / df_pct_gen['total_mes']) * 100
-                        
-                        st.subheader("📈 Género (Hombres vs Mujeres)")
-                        st.plotly_chart(generar_grafica_plotly_linea(df_pct_gen, 'mes', 'porcentaje', 'genero_norm', "Evolución % Género", True), use_container_width=True)
-                        imgs["Tendencia Porcentaje Género"] = generar_grafica_linea_porcentaje_genero(df_pct_gen, 'mes', 'porcentaje', 'genero_norm', "Solicitantes por Género (%)", "l_pct_gen.png")
-                    else: st.warning("Datos de género insuficientes.")
-                except Exception as e: st.error(f"Error género: {e}")
-            
-            # Tendencias
-            if valid_fechas:
-                if graf_linea_inc:
+                # --- RESULTADOS ---
+                st.header("3. Resultados")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total", len(df_c))
+                c2.metric("Tipos", df_c[col_inc].nunique())
+                if res_lluv: c3.metric("Lluvia", res_lluv['estadisticas']['total_lluvias'])
+                
+                st.write("Estado: Generando mapa de calor...")
+                # MAPA HEATMAP
+                if graf_heatmap and HAS_MAPS and geo_file and col_geo_nombre:
                     try:
-                        top10_names = conteos["General"].head(10).index.tolist()
-                        df_top = df_c[df_c[col_inc].isin(top10_names)].copy()
-                        data_linea = df_top.groupby(['mes', col_inc]).size().reset_index(name='conteo')
-                        if not data_linea.empty:
-                            st.subheader("📈 Tendencia Incidentes")
-                            st.plotly_chart(generar_grafica_plotly_linea(data_linea, 'mes', 'conteo', col_inc, "Evolución Incidentes"), use_container_width=True)
-                            imgs["Tendencia Incidentes"] = generar_grafica_linea_multiple(data_linea, 'mes', 'conteo', col_inc, "Comparativa Incidentes", "l_inc.png")
-                    except: pass
-                
-                if graf_linea_col:
-                    try:
-                        top10_cols = conteos["Colonias"].head(10).index.tolist()
-                        df_top_c = df_c[df_c[col_col].isin(top10_cols)].copy()
-                        data_linea_c = df_top_c.groupby(['mes', col_col]).size().reset_index(name='conteo')
-                        if not data_linea_c.empty:
-                            st.subheader("📈 Tendencia Colonias")
-                            st.plotly_chart(generar_grafica_plotly_linea(data_linea_c, 'mes', 'conteo', col_col, "Evolución Colonias"), use_container_width=True)
-                            imgs["Tendencia Colonias"] = generar_grafica_linea_multiple(data_linea_c, 'mes', 'conteo', col_col, "Comparativa Colonias", "l_col.png")
-                    except: pass
+                        conteo_cols = df_c[col_col].value_counts().reset_index()
+                        conteo_cols.columns = ['nombre_norm', 'cantidad']
+                        
+                        gdf = gpd.read_file(geo_file)
+                        gdf['nombre_norm'] = gdf[col_geo_nombre].apply(limpiar_texto)
+                        
+                        gdf_merged = gdf.merge(conteo_cols, on='nombre_norm', how='left')
+                        gdf_merged['cantidad'] = gdf_merged['cantidad'].fillna(0)
+                        
+                        st.subheader("🗺️ Mapa de Calor: Densidad de Reportes")
+                        
+                        m = folium.Map(location=[gdf_merged.geometry.centroid.y.mean(), gdf_merged.geometry.centroid.x.mean()], zoom_start=13)
+                        
+                        folium.Choropleth(
+                            geo_data=gdf_merged,
+                            name="Choropleth",
+                            data=gdf_merged,
+                            columns=['nombre_norm', 'cantidad'],
+                            key_on='feature.properties.nombre_norm',
+                            fill_color='Reds', # Rojo/Vino
+                            fill_opacity=0.8,
+                            line_opacity=0.2,
+                            legend_name='Reportes'
+                        ).add_to(m)
+                        
+                        st_folium(m, width=800, height=500)
+                        imgs["Mapa de Calor (Colonias)"] = generar_mapa_estatico_word(gdf_merged, "Densidad de Reportes por Colonia", "mapa_calor.png")
+                    except Exception as e:
+                        st.error(f"Error generando mapa: {e}")
 
-            if res_lluv:
-                st.markdown("---")
-                st.header("🌧️ Análisis Lluvias")
-                top_inc_lluv = res_lluv['conteo_incidentes'].head(15)
-                st.plotly_chart(generar_grafica_plotly_bar(top_inc_lluv, "Tipos (Lluvias)"), use_container_width=True)
-                imgs["Tipos Lluvia"] = generar_grafica_bar(top_inc_lluv, "Tipos en Lluvias", "g_inc_lluv.png")
+                st.write("Estado: Generando gráficas generales...")
+                st.subheader("Vista General")
+                top_gen = conteos["General"].head(15)
+                st.plotly_chart(generar_grafica_plotly_bar(top_gen, "Top Incidentes"), use_container_width=True)
+                imgs["General"] = generar_grafica_bar(top_gen, "Top Incidentes", "g1.png")
+
+                # Círculos Edad
+                if col_edad and graf_edad_colonia:
+                    st.write("Estado: Generando gráfica de edades...")
+                    st.subheader("⚫ Rango de Edad Dominante por Colonia (Top 10)")
+                    try:
+                        top10_c = conteos["Colonias"].head(10).index.tolist()
+                        df_edad = df_c[df_c[col_col].isin(top10_c) & df_c['edad_cat'].notna()].copy()
+                        if not df_edad.empty:
+                            grp_edad = df_edad.groupby([col_col, 'edad_cat']).size().reset_index(name='Cantidad')
+                            total_por_colonia = df_edad.groupby(col_col).size().reset_index(name='Total_Col')
+                            grp_edad = pd.merge(grp_edad, total_por_colonia, on=col_col)
+                            grp_edad['Porcentaje'] = (grp_edad['Cantidad'] / grp_edad['Total_Col']) * 100
+                            grp_edad.rename(columns={col_col: 'Colonia', 'edad_cat': 'Rango'}, inplace=True)
+                            
+                            grp_edad = grp_edad.sort_values(['Colonia', 'Porcentaje'], ascending=[True, False])
+                            grp_edad_max = grp_edad.drop_duplicates(subset=['Colonia'], keep='first')
+                            
+                            st.plotly_chart(generar_grafica_plotly_circulos_edad(grp_edad_max, "Rango de Edad Dominante por Colonia"), use_container_width=True)
+                            imgs["Rango de Edad Dominante por Colonia"] = generar_grafica_circulos_edad_word(grp_edad_max, "Rango de Edad Dominante", "g_edad_circ.png")
+                        else: st.warning("No hay datos de edad suficientes.")
+                    except Exception as e: st.error(f"Error edad: {e}")
+
+                # Género
+                if valid_fechas and col_genero and graf_pct_genero:
+                    st.write("Estado: Generando gráfica de género...")
+                    try:
+                        df_gen = df_c[df_c['genero_norm'].isin(['Masculino', 'Femenino'])].copy()
+                        if not df_gen.empty:
+                            conteo_gen_mes = df_gen.groupby(['mes', 'genero_norm']).size().reset_index(name='cuenta')
+                            total_mes = df_gen.groupby('mes').size().reset_index(name='total_mes')
+                            df_pct_gen = pd.merge(conteo_gen_mes, total_mes, on='mes')
+                            df_pct_gen['porcentaje'] = (df_pct_gen['cuenta'] / df_pct_gen['total_mes']) * 100
+                            
+                            st.subheader("📈 Género (Hombres vs Mujeres)")
+                            st.plotly_chart(generar_grafica_plotly_linea(df_pct_gen, 'mes', 'porcentaje', 'genero_norm', "Evolución % Género", True), use_container_width=True)
+                            imgs["Tendencia Porcentaje Género"] = generar_grafica_linea_porcentaje_genero(df_pct_gen, 'mes', 'porcentaje', 'genero_norm', "Solicitantes por Género (%)", "l_pct_gen.png")
+                    except Exception as e: st.error(f"Error género: {e}")
                 
-                top_col_lluv = res_lluv['conteo_colonias'].head(15)
-                st.plotly_chart(generar_grafica_plotly_bar(top_col_lluv, "Colonias (Lluvias)"), use_container_width=True)
-                imgs["Colonias Lluvia"] = generar_grafica_bar(top_col_lluv, "Colonias en Lluvias", "g_col_lluv.png")
-                
+                # Tendencias
                 if valid_fechas:
-                    df_lluvia_t = res_lluv['df_filtrado'].copy()
-                    df_lluvia_t['mes'] = df_lluvia_t['fecha_p'].dt.to_period('M')
-                    try:
-                        top5_inc_lluvia = res_lluv['conteo_incidentes'].head(5).index.tolist()
-                        df_top_lluvia = df_lluvia_t[df_lluvia_t[col_inc].isin(top5_inc_lluvia)]
-                        if not df_top_lluvia.empty:
-                            data_linea_lluvia = df_top_lluvia.groupby(['mes', col_inc]).size().reset_index(name='conteo')
-                            st.subheader("📈 Tendencia Tipos (Lluvias)")
-                            st.plotly_chart(generar_grafica_plotly_linea(data_linea_lluvia, 'mes', 'conteo', col_inc, "Evolución Tipos (Lluvias)"), use_container_width=True)
-                            imgs["Tendencia Tipos Lluvia"] = generar_grafica_linea_multiple(data_linea_lluvia, 'mes', 'conteo', col_inc, "Evolución Tipos (Lluvias)", "l_tipo_lluv.png")
-                    except: pass
-                    try:
-                        data_total = df_lluvia_t.groupby('mes').size().reset_index(name='conteo')
-                        if not data_total.empty:
-                            imgs["Tendencia Total Lluvias"] = generar_grafica_linea_simple(data_total.set_index('mes')['conteo'], "Total Lluvias", "Mes", "Cant", "l_total_lluv.png")
-                    except: pass
+                    st.write("Estado: Generando líneas de tendencia...")
+                    if graf_linea_inc:
+                        try:
+                            top10_names = conteos["General"].head(10).index.tolist()
+                            df_top = df_c[df_c[col_inc].isin(top10_names)].copy()
+                            data_linea = df_top.groupby(['mes', col_inc]).size().reset_index(name='conteo')
+                            if not data_linea.empty:
+                                st.subheader("📈 Tendencia Incidentes")
+                                st.plotly_chart(generar_grafica_plotly_linea(data_linea, 'mes', 'conteo', col_inc, "Evolución Incidentes"), use_container_width=True)
+                                imgs["Tendencia Incidentes"] = generar_grafica_linea_multiple(data_linea, 'mes', 'conteo', col_inc, "Comparativa Incidentes", "l_inc.png")
+                        except: pass
+                    
+                    if graf_linea_col:
+                        try:
+                            top10_cols = conteos["Colonias"].head(10).index.tolist()
+                            df_top_c = df_c[df_c[col_col].isin(top10_cols)].copy()
+                            data_linea_c = df_top_c.groupby(['mes', col_col]).size().reset_index(name='conteo')
+                            if not data_linea_c.empty:
+                                st.subheader("📈 Tendencia Colonias")
+                                st.plotly_chart(generar_grafica_plotly_linea(data_linea_c, 'mes', 'conteo', col_col, "Evolución Colonias"), use_container_width=True)
+                                imgs["Tendencia Colonias"] = generar_grafica_linea_multiple(data_linea_c, 'mes', 'conteo', col_col, "Comparativa Colonias", "l_col.png")
+                        except: pass
 
-            st.success("✅ Hecho")
-            c1, c2 = st.columns(2)
-            c1.markdown(get_link(generar_reporte_word(conteos, imgs), "Word"), unsafe_allow_html=True)
-            c2.markdown(get_link(generar_txt(conteos), "Txt"), unsafe_allow_html=True)
-            for p in imgs.values(): 
-                if p and os.path.exists(p): os.remove(p)
+                if res_lluv:
+                    st.write("Estado: Generando gráficas de lluvia...")
+                    st.markdown("---")
+                    st.header("🌧️ Análisis Lluvias")
+                    top_inc_lluv = res_lluv['conteo_incidentes'].head(15)
+                    st.plotly_chart(generar_grafica_plotly_bar(top_inc_lluv, "Tipos (Lluvias)"), use_container_width=True)
+                    imgs["Tipos Lluvia"] = generar_grafica_bar(top_inc_lluv, "Tipos en Lluvias", "g_inc_lluv.png")
+                    
+                    top_col_lluv = res_lluv['conteo_colonias'].head(15)
+                    st.plotly_chart(generar_grafica_plotly_bar(top_col_lluv, "Colonias (Lluvias)"), use_container_width=True)
+                    imgs["Colonias Lluvia"] = generar_grafica_bar(top_col_lluv, "Colonias en Lluvias", "g_col_lluv.png")
+                    
+                    if valid_fechas:
+                        df_lluvia_t = res_lluv['df_filtrado'].copy()
+                        df_lluvia_t['mes'] = df_lluvia_t['fecha_p'].dt.to_period('M')
+                        try:
+                            top5_inc_lluvia = res_lluv['conteo_incidentes'].head(5).index.tolist()
+                            df_top_lluvia = df_lluvia_t[df_lluvia_t[col_inc].isin(top5_inc_lluvia)]
+                            if not df_top_lluvia.empty:
+                                data_linea_lluvia = df_top_lluvia.groupby(['mes', col_inc]).size().reset_index(name='conteo')
+                                st.subheader("📈 Tendencia Tipos (Lluvias)")
+                                st.plotly_chart(generar_grafica_plotly_linea(data_linea_lluvia, 'mes', 'conteo', col_inc, "Evolución Tipos (Lluvias)"), use_container_width=True)
+                                imgs["Tendencia Tipos Lluvia"] = generar_grafica_linea_multiple(data_linea_lluvia, 'mes', 'conteo', col_inc, "Evolución Tipos (Lluvias)", "l_tipo_lluv.png")
+                        except: pass
+                        try:
+                            data_total = df_lluvia_t.groupby('mes').size().reset_index(name='conteo')
+                            if not data_total.empty:
+                                imgs["Tendencia Total Lluvias"] = generar_grafica_linea_simple(data_total.set_index('mes')['conteo'], "Total Lluvias", "Mes", "Cant", "l_total_lluv.png")
+                        except: pass
+
+                st.write("Estado: Finalizando...")
+                st.success("✅ Generado Exitosamente")
+                c1, c2 = st.columns(2)
+                c1.markdown(get_link(generar_reporte_word(conteos, imgs), "Word"), unsafe_allow_html=True)
+                c2.markdown(get_link(generar_txt(conteos), "Txt"), unsafe_allow_html=True)
+                
+                # Limpiar
+                for p in imgs.values(): 
+                    if p and os.path.exists(p): os.remove(p)
+
+        except Exception as e:
+            st.error(f"❌ Ocurrió un error inesperado: {e}")
+            st.text("Detalle del error (para soporte):")
+            st.code(traceback.format_exc())
 
 if __name__ == "__main__":
     main()
