@@ -15,6 +15,15 @@ import unicodedata
 import base64
 import re
 
+# --- LIBRERÍAS DE MAPAS ---
+try:
+    import geopandas as gpd
+    import folium
+    from streamlit_folium import st_folium
+    from folium.plugins import HeatMap
+except ImportError:
+    st.error("⚠️ Faltan librerías de mapas. Instala: pip install geopandas folium streamlit-folium")
+
 # Configuración de la página
 st.set_page_config(
     page_title="Analizador de Urgencias Operativas",
@@ -65,7 +74,7 @@ def parsear_fecha(fecha):
     try: return pd.to_datetime(fecha, dayfirst=True).to_pydatetime()
     except: return None
 
-# --- FUNCIONES DE GRÁFICAS (Matplotlib - Word) ---
+# --- FUNCIONES DE GRÁFICAS ESTÁTICAS (WORD) ---
 
 def generar_grafica_bar(conteo, titulo, filename):
     if conteo is None or conteo.empty: return None
@@ -79,25 +88,6 @@ def generar_grafica_bar(conteo, titulo, filename):
     for bar in bars:
         plt.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.1,
                 f'{int(bar.get_height())}', ha='center', va='bottom', fontsize=8)
-    plt.tight_layout()
-    path = os.path.join(tempfile.gettempdir(), filename)
-    plt.savefig(path, dpi=200, bbox_inches='tight')
-    plt.close()
-    return path
-
-def generar_grafica_linea_simple(datos, titulo, xlabel, ylabel, filename):
-    if datos.empty: return None
-    df_plot = datos.reset_index()
-    df_plot.columns = ['Periodo', 'Cantidad']
-    df_plot = df_plot.sort_values('Periodo')
-    etiquetas_x = [formatear_periodo_es(p) for p in df_plot['Periodo']]
-    plt.figure(figsize=(10, 6))
-    plt.plot(etiquetas_x, df_plot['Cantidad'], marker='o', linestyle='-', color='teal', linewidth=2)
-    plt.title(titulo, fontsize=12, fontweight='bold')
-    plt.xlabel(xlabel, fontweight='bold')
-    plt.ylabel(ylabel, fontweight='bold')
-    plt.xticks(rotation=45, ha='right', fontsize=8)
-    plt.grid(True, alpha=0.3)
     plt.tight_layout()
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
@@ -142,8 +132,6 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
             ax.annotate(f'{y:.0f}%', xy=(x, y), xytext=(0, 8), textcoords='offset points',
                         ha='center', va='bottom', fontsize=9, fontweight='bold', color=color)
     ax.set_title(titulo, fontsize=14, fontweight='bold')
-    ax.set_xlabel("Mes", fontweight='bold')
-    ax.set_ylabel("Porcentaje (%)", fontweight='bold')
     ax.set_ylim(0, 115)
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
     plt.xticks(rotation=45, ha='right', fontsize=9)
@@ -155,53 +143,66 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
     plt.close()
     return path
 
-# --- NUEVA FUNCIÓN MATPLOTLIT: CÍRCULOS NEGROS ---
 def generar_grafica_circulos_edad_word(df_data, titulo, filename):
-    """Gráfica de burbujas estática para Word: Círculos negros con texto blanco."""
     if df_data.empty: return None
-    
     fig, ax = plt.subplots(figsize=(12, 8))
-    
     colonias = df_data['Colonia'].unique()
     rangos = ["Menor (0-17)", "Joven (18-29)", "Adulto (30-59)", "Mayor (60+)"]
-    
     ax.set_xlim(-0.5, len(colonias) - 0.5)
     ax.set_ylim(-0.5, len(rangos) - 0.5)
-    
     col_map = {c: i for i, c in enumerate(colonias)}
     rango_map = {r: i for i, r in enumerate(rangos)}
-    
     for _, row in df_data.iterrows():
         c_idx = col_map.get(row['Colonia'])
         r_idx = rango_map.get(row['Rango'])
-        
         if c_idx is not None and r_idx is not None:
             pct = row['Porcentaje']
-            # Escalar tamaño del círculo (s es área en puntos^2)
             marker_size = pct * 30 
-            
-            # 1. Dibujar círculo negro
             ax.scatter(c_idx, r_idx, s=marker_size, c='black', alpha=0.9, zorder=3)
-            
-            # 2. Dibujar texto blanco en el centro
             ax.text(c_idx, r_idx, f"{pct:.0f}%", ha='center', va='center', 
                     fontsize=9, fontweight='bold', color='white', zorder=4)
-
     ax.set_xticks(range(len(colonias)))
     ax.set_xticklabels(colonias, rotation=45, ha='right')
     ax.set_yticks(range(len(rangos)))
     ax.set_yticklabels(rangos)
-    
     ax.set_title(titulo, fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.2, linestyle='--', zorder=0)
     plt.tight_layout()
-    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
     return path
 
-# --- FUNCIONES DE GRÁFICAS (Plotly - Pantalla) ---
+# --- NUEVA FUNCIÓN: MAPA HEATMAP ESTÁTICO (WORD) ---
+def generar_mapa_estatico_word(gdf_merged, titulo, filename):
+    """
+    Genera una imagen estática del mapa choropleth usando Geopandas y Matplotlib.
+    Usa una paleta 'Reds' o similar para simular el tono vino.
+    """
+    if gdf_merged.empty: return None
+    
+    fig, ax = plt.subplots(figsize=(10, 10))
+    
+    # 1. Dibujar el mapa base (todas las colonias en gris claro por si no tienen datos)
+    gdf_merged.plot(ax=ax, color='#f0f0f0', edgecolor='grey', linewidth=0.5)
+    
+    # 2. Dibujar el heatmap (Choropleth)
+    # cmap='RdPu' o 'Reds' o 'YlOrRd'. Para "Vino", 'RdPu' o 'PuRd' funciona bien, o 'Reds' oscuros.
+    # Vamos a usar 'Reds' que es clásico para calor, los valores altos serán rojo oscuro/vino.
+    gdf_merged.plot(column='cantidad', ax=ax, cmap='Reds', legend=True,
+                    legend_kwds={'label': "Cantidad de Reportes", 'orientation': "horizontal"},
+                    edgecolor='black', linewidth=0.2, alpha=0.9)
+    
+    ax.set_title(titulo, fontsize=14, fontweight='bold')
+    ax.set_axis_off() # Quitar ejes lat/lon
+    
+    path = os.path.join(tempfile.gettempdir(), filename)
+    plt.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close()
+    return path
+
+
+# --- FUNCIONES DE GRÁFICAS INTERACTIVAS (STREAMLIT) ---
 
 def generar_grafica_plotly_bar(conteo, titulo):
     if conteo is None or conteo.empty: return px.bar(title="Sin datos")
@@ -215,18 +216,14 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
     df_plot = df_long.copy()
     df_plot = df_plot.sort_values(col_periodo)
     df_plot['Mes_Texto'] = df_plot[col_periodo].apply(formatear_periodo_es)
-    
     if es_porcentaje: df_plot['Etiqueta'] = df_plot[col_y].apply(lambda x: f"{x:.1f}%")
     else: df_plot['Etiqueta'] = df_plot[col_y].astype(str)
-
     color_map = {'Masculino': 'blue', 'Femenino': 'purple'} if (es_porcentaje and col_color) else None
-
     if col_color:
         fig = px.line(df_plot, x='Mes_Texto', y=col_y, color=col_color, title=titulo, markers=True,
                       text='Etiqueta', color_discrete_map=color_map)
     else:
         fig = px.line(df_plot, x='Mes_Texto', y=col_y, title=titulo, markers=True, text='Etiqueta')
-    
     fig.update_traces(textposition="top center")
     if es_porcentaje:
         fig.update_yaxes(range=[0, 115], title="Porcentaje (%)")
@@ -234,36 +231,18 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
     fig.update_xaxes(type='category', title="Mes")
     return fig
 
-# --- NUEVA FUNCIÓN PLOTLY: CÍRCULOS NEGROS ---
 def generar_grafica_plotly_circulos_edad(df_data, titulo):
-    """Gráfica de burbujas interactiva: Círculos negros con texto blanco."""
     if df_data.empty: return px.scatter(title="Sin datos")
-    
-    # Crear el texto que irá dentro del círculo
     df_data['Texto_Pct'] = df_data['Porcentaje'].apply(lambda x: f"{x:.0f}%")
-    
-    fig = px.scatter(df_data, x="Colonia", y="Rango",
-                     size="Porcentaje", # El tamaño depende del porcentaje
-                     text="Texto_Pct",    # El texto es el porcentaje
-                     title=titulo,
-                     # Forzar color negro único
-                     color_discrete_sequence=['black'],
-                     opacity=0.9
-                     )
-    
-    fig.update_traces(
-        mode='markers+text', # Mostrar burbuja y texto
-        textposition='middle center', # Texto centrado
-        textfont=dict(color='white', weight='bold'), # Texto blanco
-        marker=dict(line=dict(width=0)) # Sin borde en el círculo
-    )
-
+    fig = px.scatter(df_data, x="Colonia", y="Rango", size="Porcentaje", text="Texto_Pct",
+                     title=titulo, color_discrete_sequence=['black'], opacity=0.9)
+    fig.update_traces(mode='markers+text', textposition='middle center', 
+                      textfont=dict(color='white', weight='bold'), marker=dict(line=dict(width=0)))
     fig.update_yaxes(categoryorder='array', categoryarray=["Menor (0-17)", "Joven (18-29)", "Adulto (30-59)", "Mayor (60+)"], title="Rango de Edad Dominante")
     fig.update_layout(height=600, plot_bgcolor='white', xaxis_tickangle=-45, yaxis_gridcolor='lightgrey')
-    
     return fig
 
-# --- ANÁLISIS ---
+# --- FUNCIONES DE ANÁLISIS ---
 
 def analizar_lluvias_manual(df, col_lluvias, col_colonias, col_inc):
     if df.empty: return None
@@ -300,8 +279,9 @@ def generar_reporte_word(conteos, imagenes):
     doc.add_page_break()
     doc.add_heading('Gráficas Visuales', 1)
     
-    orden = ['General', 'Rango de Edad Dominante por Colonia', 'Tendencia Porcentaje Género', 
-             'Tendencia Incidentes', 'Tendencia Colonias', 
+    # Orden de aparición
+    orden = ['General', 'Mapa de Calor (Colonias)', 'Rango de Edad Dominante por Colonia', 
+             'Tendencia Porcentaje Género', 'Tendencia Incidentes', 'Tendencia Colonias', 
              'Tipos Lluvia', 'Colonias Lluvia', 'Tendencia Tipos Lluvia', 'Tendencia Total Lluvias']
     
     for titulo in orden:
@@ -357,18 +337,17 @@ def main():
 
     # 2. CONFIGURACIÓN
     st.header("2. Configuración")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     col_inc = c1.selectbox("Columna INCIDENTES:", df.columns)
     col_col = c2.selectbox("Columna COLONIAS:", df.columns)
-    
-    c3, c4 = st.columns(2)
     col_genero = c3.selectbox("Columna GÉNERO (Opcional):", ["No usar"] + list(df.columns))
     if col_genero == "No usar": col_genero = None
     
+    c4, c5 = st.columns(2)
     col_edad = c4.selectbox("Columna EDAD (Opcional):", ["No usar"] + list(df.columns))
     if col_edad == "No usar": col_edad = None
 
-    col_fecha = st.selectbox("Columna FECHAS (Necesaria para gráficas de línea):", ["No usar"]+list(df.columns))
+    col_fecha = c5.selectbox("Columna FECHAS (Necesaria para gráficas de línea):", ["No usar"]+list(df.columns))
     if col_fecha == "No usar": col_fecha = None
     
     st.subheader("🌧️ Análisis de Lluvias")
@@ -387,17 +366,31 @@ def main():
     
     graf_linea_inc = col_g1.checkbox("Línea: Tendencia Top 10 Incidentes", value=False)
     graf_linea_col = col_g2.checkbox("Línea: Tendencia Top 10 Colonias", value=False)
-    
-    # CHECKBOX ACTUALIZADO
     graf_edad_colonia = col_g1.checkbox("Círculos: Rango de Edad Dominante por Colonia", value=False)
+    
+    # --- NUEVO: HEATMAP CONFIG ---
+    st.subheader("🗺️ Mapa de Calor (Heatmap)")
+    graf_heatmap = st.checkbox("Generar Mapa de Calor por Colonia", value=False)
+    geo_file = None
+    col_geo_nombre = None
+    
+    if graf_heatmap:
+        st.info("Sube el archivo GeoJSON con los límites de las colonias.")
+        geo_file = st.file_uploader("Archivo GeoJSON", type=['geojson', 'json'])
+        if geo_file:
+            try:
+                # Leer GeoJSON preliminarmente para obtener columnas
+                gdf_temp = gpd.read_file(geo_file)
+                st.success("GeoJSON cargado correctamente.")
+                col_geo_nombre = st.selectbox("Selecciona la columna del GeoJSON con el NOMBRE de la colonia:", gdf_temp.columns)
+                # Volver al inicio del archivo para lectura limpia después
+                geo_file.seek(0)
+            except Exception as e:
+                st.error(f"Error leyendo GeoJSON: {e}")
 
     # Validaciones
     if (graf_linea_inc or graf_linea_col or graf_pct_genero) and not col_fecha:
          st.warning("⚠️ Las gráficas de línea requieren una Columna de FECHAS.")
-    if graf_pct_genero and not col_genero:
-         st.warning("⚠️ Requiere Columna GÉNERO.")
-    if graf_edad_colonia and not col_edad:
-         st.warning("⚠️ Requiere Columna EDAD.")
 
     # 3. PROCESAR
     if st.button("🚀 Generar Reporte", type="primary"):
@@ -449,41 +442,83 @@ def main():
             c2.metric("Tipos", df_c[col_inc].nunique())
             if res_lluv: c3.metric("Lluvia", res_lluv['estadisticas']['total_lluvias'])
             
+            # --- MAPA DE CALOR (HEATMAP) ---
+            if graf_heatmap and geo_file and col_geo_nombre:
+                try:
+                    # 1. Preparar datos del CSV
+                    conteo_cols = df_c[col_col].value_counts().reset_index()
+                    conteo_cols.columns = ['nombre_norm', 'cantidad']
+                    
+                    # 2. Preparar GeoJSON
+                    gdf = gpd.read_file(geo_file)
+                    # Normalizar nombre en GeoJSON para el cruce
+                    gdf['nombre_norm'] = gdf[col_geo_nombre].apply(limpiar_texto)
+                    
+                    # 3. Merge (Left merge para mantener geometría aunque no haya reportes)
+                    gdf_merged = gdf.merge(conteo_cols, on='nombre_norm', how='left')
+                    gdf_merged['cantidad'] = gdf_merged['cantidad'].fillna(0)
+                    
+                    st.subheader("🗺️ Mapa de Calor: Densidad de Reportes")
+                    
+                    # Interactivo (Folium)
+                    m = folium.Map(location=[gdf_merged.geometry.centroid.y.mean(), gdf_merged.geometry.centroid.x.mean()], zoom_start=13)
+                    
+                    # Choropleth "Vino" (YlOrRd o Reds funciona, pero personalizado es mejor)
+                    folium.Choropleth(
+                        geo_data=gdf_merged,
+                        name="Choropleth",
+                        data=gdf_merged,
+                        columns=['nombre_norm', 'cantidad'],
+                        key_on='feature.properties.nombre_norm',
+                        fill_color='YlOrRd', # De amarillo a rojo oscuro (vino)
+                        fill_opacity=0.8,
+                        line_opacity=0.2,
+                        legend_name='Cantidad de Reportes'
+                    ).add_to(m)
+                    
+                    # Tooltip
+                    folium.GeoJson(
+                        gdf_merged,
+                        style_function=lambda x: {'fillColor': '#00000000', 'color': '#00000000'},
+                        tooltip=folium.GeoJsonTooltip(fields=[col_geo_nombre, 'cantidad'], aliases=['Colonia:', 'Reportes:'])
+                    ).add_to(m)
+
+                    st_folium(m, width=800, height=500)
+                    
+                    # Estático (Word) - Matplotlib
+                    imgs["Mapa de Calor (Colonias)"] = generar_mapa_estatico_word(gdf_merged, "Densidad de Reportes por Colonia", "mapa_calor.png")
+
+                except Exception as e:
+                    st.error(f"Error generando mapa: {e}")
+
+
             st.subheader("Vista General")
             top_gen = conteos["General"].head(15)
             st.plotly_chart(generar_grafica_plotly_bar(top_gen, "Top Incidentes"), use_container_width=True)
             imgs["General"] = generar_grafica_bar(top_gen, "Top Incidentes", "g1.png")
 
-            # --- GRÁFICA CÍRCULOS EDAD (SOLO EL MAYOR) ---
+            # Círculos Edad
             if col_edad and graf_edad_colonia:
                 st.subheader("⚫ Rango de Edad Dominante por Colonia (Top 10)")
                 try:
                     top10_c = conteos["Colonias"].head(10).index.tolist()
                     df_edad = df_c[df_c[col_col].isin(top10_c) & df_c['edad_cat'].notna()].copy()
-                    
                     if not df_edad.empty:
-                        # 1. Agrupar por colonia y rango
                         grp_edad = df_edad.groupby([col_col, 'edad_cat']).size().reset_index(name='Cantidad')
-                        
-                        # 2. Calcular totales por colonia para el %
                         total_por_colonia = df_edad.groupby(col_col).size().reset_index(name='Total_Col')
                         grp_edad = pd.merge(grp_edad, total_por_colonia, on=col_col)
                         grp_edad['Porcentaje'] = (grp_edad['Cantidad'] / grp_edad['Total_Col']) * 100
                         grp_edad.rename(columns={col_col: 'Colonia', 'edad_cat': 'Rango'}, inplace=True)
                         
-                        # 3. FILTRADO CLAVE: Mantener solo el rango con MAYOR porcentaje por colonia
                         grp_edad = grp_edad.sort_values(['Colonia', 'Porcentaje'], ascending=[True, False])
                         grp_edad_max = grp_edad.drop_duplicates(subset=['Colonia'], keep='first')
                         
-                        # 4. Graficar
                         st.plotly_chart(generar_grafica_plotly_circulos_edad(grp_edad_max, "Rango de Edad Dominante por Colonia"), use_container_width=True)
                         imgs["Rango de Edad Dominante por Colonia"] = generar_grafica_circulos_edad_word(grp_edad_max, "Rango de Edad Dominante (Círculo Negro = % Mayor)", "g_edad_circ.png")
-                    else:
-                        st.warning("No hay datos de edad suficientes en las top 10 colonias.")
-                except Exception as e:
-                    st.error(f"Error en gráfica de edades: {e}")
+                    else: st.warning("No hay datos de edad suficientes.")
+                except Exception as e: st.error(f"Error edad: {e}")
 
-            # --- GRÁFICA PORCENTAJE GÉNERO ---
+            # Género
             if valid_fechas and col_genero and graf_pct_genero:
                 try:
                     df_gen = df_c[df_c['genero_norm'].isin(['Masculino', 'Femenino'])].copy()
@@ -496,10 +531,10 @@ def main():
                         st.subheader("📈 Género (Hombres vs Mujeres)")
                         st.plotly_chart(generar_grafica_plotly_linea(df_pct_gen, 'mes', 'porcentaje', 'genero_norm', "Evolución % Género", True), use_container_width=True)
                         imgs["Tendencia Porcentaje Género"] = generar_grafica_linea_porcentaje_genero(df_pct_gen, 'mes', 'porcentaje', 'genero_norm', "Solicitantes por Género (%)", "l_pct_gen.png")
-                    else:
-                         st.warning("Datos de género insuficientes.")
+                    else: st.warning("Datos de género insuficientes.")
                 except Exception as e: st.error(f"Error género: {e}")
             
+            # Tendencias
             if valid_fechas:
                 if graf_linea_inc:
                     try:
@@ -546,7 +581,6 @@ def main():
                             st.plotly_chart(generar_grafica_plotly_linea(data_linea_lluvia, 'mes', 'conteo', col_inc, "Evolución Tipos (Lluvias)"), use_container_width=True)
                             imgs["Tendencia Tipos Lluvia"] = generar_grafica_linea_multiple(data_linea_lluvia, 'mes', 'conteo', col_inc, "Evolución Tipos (Lluvias)", "l_tipo_lluv.png")
                     except: pass
-                    
                     try:
                         data_total = df_lluvia_t.groupby('mes').size().reset_index(name='conteo')
                         if not data_total.empty:
