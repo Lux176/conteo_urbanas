@@ -8,3 +8,13 @@ openpyxl
 geopandas
 folium
 streamlit-folium
+streamlit
+pandas
+numpy
+matplotlib
+plotly
+python-docx
+geopandas
+folium
+streamlit-folium
+openpyxl
