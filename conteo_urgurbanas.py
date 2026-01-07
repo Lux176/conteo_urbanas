@@ -49,11 +49,10 @@ def parsear_fecha(fecha):
     return None
 
 def generar_grafica_bar(conteo, titulo, filename):
-    """Genera gráficas usando matplotlib para el reporte Word"""
+    """Genera gráficas de BARRAS usando matplotlib para el reporte Word"""
     df_plot = conteo.reset_index()
     df_plot.columns = ['Categoría', 'Cantidad']
     
-    # Crear gráfica con matplotlib
     plt.figure(figsize=(12, 6))
     colors = plt.cm.viridis(np.linspace(0, 1, len(df_plot)))
     bars = plt.bar(df_plot['Categoría'], df_plot['Cantidad'], color=colors)
@@ -63,7 +62,6 @@ def generar_grafica_bar(conteo, titulo, filename):
     plt.ylabel('Cantidad', fontweight='bold')
     plt.xticks(rotation=45, ha='right')
     
-    # Añadir valores en las barras
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height + 0.1,
@@ -72,7 +70,31 @@ def generar_grafica_bar(conteo, titulo, filename):
     plt.grid(axis='y', alpha=0.3)
     plt.tight_layout()
     
-    # Guardar imagen
+    path = os.path.join(tempfile.gettempdir(), filename)
+    plt.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return path
+
+def generar_grafica_linea(datos, titulo, xlabel, ylabel, filename):
+    """Genera gráficas de LÍNEA usando matplotlib para el reporte Word"""
+    # datos debe ser una Serie con índice de fechas/periodos y valores numéricos
+    df_plot = datos.reset_index()
+    df_plot.columns = ['Fecha', 'Cantidad']
+    
+    # Convertir a string para asegurar que matplotlib lo grafique bien
+    df_plot['Fecha'] = df_plot['Fecha'].astype(str)
+    
+    plt.figure(figsize=(12, 6))
+    plt.plot(df_plot['Fecha'], df_plot['Cantidad'], marker='o', linestyle='-', color='teal', linewidth=2)
+    
+    plt.title(titulo, fontsize=14, fontweight='bold')
+    plt.xlabel(xlabel, fontweight='bold')
+    plt.ylabel(ylabel, fontweight='bold')
+    plt.xticks(rotation=45, ha='right')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -80,7 +102,7 @@ def generar_grafica_bar(conteo, titulo, filename):
     return path
 
 def generar_grafica_plotly(conteo, titulo):
-    """Genera gráfica plotly para mostrar en Streamlit"""
+    """Genera gráfica plotly de barras para mostrar en Streamlit"""
     df_plot = conteo.reset_index()
     df_plot.columns = ['Categoría', 'Cantidad']
     fig = px.bar(df_plot, x='Categoría', y='Cantidad', title=titulo,
@@ -91,65 +113,57 @@ def generar_grafica_plotly(conteo, titulo):
         paper_bgcolor='white',
         font=dict(size=12)
     )
-    fig.update_xaxes(title_text="Categoría")
-    fig.update_yaxes(title_text="Cantidad")
     return fig
 
-# --- NUEVA FUNCIÓN: ANÁLISIS DE LLUVIAS MEJORADA ---
+def generar_grafica_linea_plotly(datos, titulo, xlabel, ylabel):
+    """Genera gráfica plotly de líneas"""
+    df_plot = datos.reset_index()
+    df_plot.columns = [xlabel, ylabel]
+    # Convertir periodo a string para visualización
+    df_plot[xlabel] = df_plot[xlabel].astype(str)
+    
+    fig = px.line(df_plot, x=xlabel, y=ylabel, title=titulo, markers=True)
+    fig.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='white'
+    )
+    return fig
+
+# --- FUNCIONES DE ANÁLISIS --- (Sin cambios en lógica de lluvias)
 def analizar_lluvias_manual(df, col_lluvias, col_colonias, col_fecha=None, col_hora=None):
-    """
-    Realiza análisis especializado de reportes por lluvias con selección manual
-    """
-    # Filtrar solo reportes de lluvias
     df_lluvias = df.copy()
-    
-    # Normalizar respuestas de lluvias
     df_lluvias[col_lluvias] = df_lluvias[col_lluvias].astype(str).str.lower().str.strip()
-    
-    # Mapear diferentes formatos de respuesta
     respuestas_afirmativas = ['sí', 'si', 'yes', 'true', 'verdadero', '1', 'x', 'check', 'afirmativo', 'lluvia']
     df_lluvias['es_lluvia'] = df_lluvias[col_lluvias].isin(respuestas_afirmativas)
-    
-    # Filtrar reportes de lluvias
     reportes_lluvias = df_lluvias[df_lluvias['es_lluvia'] == True]
     
     if len(reportes_lluvias) == 0:
         return None
     
-    # Análisis por colonia
     conteo_colonias_lluvias = reportes_lluvias[col_colonias].value_counts()
     
-    # Análisis por tipo de incidente en lluvias
     if 'col_incidentes' in st.session_state:
         col_incidentes = st.session_state.col_incidentes
         conteo_incidentes_lluvias = reportes_lluvias[col_incidentes].value_counts()
     else:
         conteo_incidentes_lluvias = None
     
-    # Análisis por fecha y hora si están disponibles
     analisis_fecha_hora = None
     if col_fecha:
         try:
-            # Procesar fechas
             reportes_lluvias['fecha_parseada'] = reportes_lluvias[col_fecha].apply(parsear_fecha)
             reportes_lluvias_fecha = reportes_lluvias.dropna(subset=['fecha_parseada'])
-            
             if not reportes_lluvias_fecha.empty:
-                # Día con más lluvias
                 dia_mas_lluvias = reportes_lluvias_fecha['fecha_parseada'].dt.date.value_counts().head(1)
-                
-                # Análisis por hora si está disponible
                 hora_mas_lluvias = None
                 if col_hora:
                     try:
-                        # Extraer hora de la columna de hora
                         reportes_lluvias_fecha['hora_parseada'] = pd.to_datetime(reportes_lluvias_fecha[col_hora], errors='coerce').dt.hour
                         reportes_lluvias_hora = reportes_lluvias_fecha.dropna(subset=['hora_parseada'])
                         if not reportes_lluvias_hora.empty:
                             hora_mas_lluvias = reportes_lluvias_hora['hora_parseada'].value_counts().head(1)
                     except:
                         pass
-                
                 analisis_fecha_hora = {
                     'dia_mas_lluvias': dia_mas_lluvias,
                     'hora_mas_lluvias': hora_mas_lluvias,
@@ -158,68 +172,34 @@ def analizar_lluvias_manual(df, col_lluvias, col_colonias, col_fecha=None, col_h
         except:
             analisis_fecha_hora = None
     
-    # Colonia más afectada
-    colonia_mas_afectada = conteo_colonias_lluvias.head(1)
-    
-    # Estadísticas generales
-    total_reportes = len(df)
-    total_lluvias = len(reportes_lluvias)
-    porcentaje_lluvias = (total_lluvias / total_reportes) * 100
-    
     return {
         'columna_lluvias': col_lluvias,
         'reportes_lluvias': reportes_lluvias,
         'conteo_colonias_lluvias': conteo_colonias_lluvias,
         'conteo_incidentes_lluvias': conteo_incidentes_lluvias,
         'analisis_fecha_hora': analisis_fecha_hora,
-        'colonia_mas_afectada': colonia_mas_afectada,
+        'colonia_mas_afectada': conteo_colonias_lluvias.head(1),
         'estadisticas': {
-            'total_reportes': total_reportes,
-            'total_lluvias': total_lluvias,
-            'porcentaje_lluvias': porcentaje_lluvias
+            'total_reportes': len(df),
+            'total_lluvias': len(reportes_lluvias),
+            'porcentaje_lluvias': (len(reportes_lluvias) / len(df)) * 100
         }
     }
 
-# --- NUEVA FUNCIÓN: CREAR GRÁFICO DE LLUVIAS ---
 def crear_grafico_lluvias(conteo_colonias, titulo="Colonias más afectadas por lluvias"):
-    """
-    Crea un gráfico de barras de las colonias más afectadas por lluvias
-    """
-    # Tomar las top 10 colonias para mejor visualización
     top_colonias = conteo_colonias.head(10).reset_index()
     top_colonias.columns = ['Colonia', 'Cantidad de Reportes']
-    
-    fig = px.bar(
-        top_colonias,
-        x='Cantidad de Reportes',
-        y='Colonia',
-        orientation='h',
-        title=titulo,
-        color='Cantidad de Reportes',
-        color_continuous_scale='blues'
-    )
-    
-    fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font=dict(color='black'),
-        height=400,
-        xaxis_title="Número de Reportes",
-        yaxis_title="Colonia",
-        yaxis={'categoryorder': 'total ascending'}
-    )
-    
+    fig = px.bar(top_colonias, x='Cantidad de Reportes', y='Colonia', orientation='h',
+                 title=titulo, color='Cantidad de Reportes', color_continuous_scale='blues')
+    fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', font=dict(color='black'), height=400,
+                      yaxis={'categoryorder': 'total ascending'})
     return fig
 
 def generar_reporte_word(conteos, imagenes):
     """Genera reporte en formato Word con los resultados"""
     doc = Document()
-    
-    # Título principal
     title = doc.add_heading('Reporte de Urgencias Operativas', 0)
-    title.alignment = 1  # Centrado
-    
-    # Fecha de generación
+    title.alignment = 1
     doc.add_paragraph(f"Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     doc.add_paragraph()
     
@@ -230,15 +210,15 @@ def generar_reporte_word(conteos, imagenes):
         tabla = doc.add_table(rows=1, cols=2)
         tabla.style = 'Table Grid'
         hdr_cells = tabla.rows[0].cells
+        
         if "Colonias" in nombre:
             hdr_cells[0].text = "Colonia"
-            hdr_cells[1].text = "Cantidad de Afectaciones"
         else:
             hdr_cells[0].text = "Tipo de Incidente"
-            hdr_cells[1].text = "Cantidad"
+        hdr_cells[1].text = "Cantidad"
         
-        # Añadir filas con datos
-        for tipo, cantidad in conteo.items():
+        # Limitar tabla a 20 filas para no saturar el word si hay muchos
+        for tipo, cantidad in list(conteo.items())[:20]:
             row_cells = tabla.add_row().cells
             row_cells[0].text = str(tipo).title()
             row_cells[1].text = str(cantidad)
@@ -250,40 +230,31 @@ def generar_reporte_word(conteos, imagenes):
         if os.path.exists(path):
             doc.add_heading(titulo, level=2)
             doc.add_picture(path, width=Inches(6.0))
-            doc.add_paragraph()  # Espacio entre gráficas
+            doc.add_paragraph()
     
     output_path = os.path.join(tempfile.gettempdir(), 'reporte_urgencias_operativas.docx')
     doc.save(output_path)
     return output_path
 
 def generar_reporte_txt(conteos):
-    """Genera reporte en formato de texto simple"""
-    texto = []
-    texto.append("REPORTE DE URGENCIAS URBANAS")
-    texto.append("=" * 50)
-    texto.append(f"Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    texto.append("")
-    
+    texto = ["REPORTE DE URGENCIAS URBANAS", "=" * 50, f"Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ""]
     for nombre, conteo in conteos.items():
         texto.append(f"\n{nombre.upper()}")
         texto.append("-" * len(nombre))
         for tipo, cantidad in conteo.items():
             texto.append(f"  {tipo.title()}: {cantidad}")
     
-    contenido = "\n".join(texto)
     path_txt = os.path.join(tempfile.gettempdir(), "reporte_urgencias_operativas.txt")
     with open(path_txt, "w", encoding="utf-8") as f:
-        f.write(contenido)
+        f.write("\n".join(texto))
     return path_txt
 
 def get_download_link(file_path, file_label):
-    """Genera un enlace de descarga para el archivo"""
     with open(file_path, "rb") as f:
         data = f.read()
     b64 = base64.b64encode(data).decode()
     file_name = os.path.basename(file_path)
-    href = f'<a href="data:file/octet-stream;base64,{b64}" download="{file_name}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; margin: 5px;">📥 {file_label}</a>'
-    return href
+    return f'<a href="data:file/octet-stream;base64,{b64}" download="{file_name}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; margin: 5px;">📥 {file_label}</a>'
 
 # --- INTERFAZ PRINCIPAL ---
 
@@ -291,13 +262,12 @@ def main():
     st.title("📊 Analizador de Urgencias Operativas")
     st.markdown("---")
     
-    # Carga de archivo
+    # 1. Carga de Datos
     st.header("1. Carga de Datos")
     uploaded_file = st.file_uploader("Sube tu archivo de datos (CSV o Excel)", type=['csv', 'xlsx'])
     
     if uploaded_file is not None:
         try:
-            # Leer archivo
             if uploaded_file.name.endswith('.xlsx'):
                 df = pd.read_excel(uploaded_file)
             else:
@@ -305,311 +275,231 @@ def main():
             
             st.success(f"✅ Archivo cargado correctamente. Dimensiones: {df.shape[0]} filas × {df.shape[1]} columnas")
             
-            # Mostrar vista previa
-            with st.expander("📋 Vista previa de los datos (primeras 10 filas)"):
-                st.dataframe(df.head(10))
-                st.write(f"**Total de columnas:** {len(df.columns)}")
-                st.write(f"**Total de registros:** {len(df)}")
+            with st.expander("📋 Vista previa de los datos"):
+                st.dataframe(df.head())
             
-            # Selección de columnas
+            # 2. Configuración
             st.header("2. Configuración del Análisis")
             col1, col2 = st.columns(2)
-            
             with col1:
-                col_incidentes = st.selectbox(
-                    "Selecciona la columna de INCIDENTES:",
-                    options=df.columns,
-                    index=None,
-                    help="Columna que contiene los tipos de incidentes"
-                )
-                # Guardar en session state para usar en análisis de lluvias
-                if col_incidentes:
-                    st.session_state.col_incidentes = col_incidentes
-            
+                col_incidentes = st.selectbox("Columna de INCIDENTES:", options=df.columns, index=None)
+                if col_incidentes: st.session_state.col_incidentes = col_incidentes
             with col2:
-                col_colonias = st.selectbox(
-                    "Selecciona la columna de COLONIAS:",
-                    options=df.columns,
-                    index=None,
-                    help="Columna que contiene los nombres de las colonias"
-                )
+                col_colonias = st.selectbox("Columna de COLONIAS:", options=df.columns, index=None)
             
-            # --- NUEVA SECCIÓN: ANÁLISIS DE LLUVIAS INTERACTIVO ---
-            st.subheader("🌧️ Análisis de Reportes por Lluvias")
-            analizar_lluvias_check = st.checkbox("Realizar análisis específico de reportes por lluvias")
-            
-            col_lluvias = None
-            col_fecha_lluvias = None
-            col_hora_lluvias = None
-            
-            if analizar_lluvias_check:
-                st.info("🔍 Selecciona las columnas para el análisis de lluvias:")
-                
-                col3, col4, col5 = st.columns(3)
-                
-                with col3:
-                    col_lluvias = st.selectbox(
-                        "Columna de LLUVIAS:",
-                        options=df.columns,
-                        index=None,
-                        help="Columna que indica si el reporte fue por lluvias (Sí/No, 1/0, etc.)"
-                    )
-                
-                with col4:
-                    col_fecha_lluvias = st.selectbox(
-                        "Columna de FECHA (opcional):",
-                        options=["No usar"] + list(df.columns),
-                        index=0,
-                        help="Columna con la fecha del incidente"
-                    )
-                    if col_fecha_lluvias == "No usar":
-                        col_fecha_lluvias = None
-                
-                with col5:
-                    col_hora_lluvias = st.selectbox(
-                        "Columna de HORA (opcional):",
-                        options=["No usar"] + list(df.columns),
-                        index=0,
-                        help="Columna con la hora del incidente"
-                    )
-                    if col_hora_lluvias == "No usar":
-                        col_hora_lluvias = None
-                
-                if col_lluvias:
-                    # Mostrar vista previa de valores únicos en la columna de lluvias
-                    valores_unicos = df[col_lluvias].astype(str).unique()[:10]
-                    st.write(f"**Valores en columna de lluvias:** {', '.join(map(str, valores_unicos))}")
-            
-            # Filtro por fechas
-            st.subheader("🗓️ Filtro por Fechas (Opcional)")
-            usar_fechas = st.checkbox("Activar filtro por fechas")
-            
-            fecha_inicio = None
-            fecha_fin = None
-            
-            if usar_fechas and col_incidentes and col_colonias:
-                col_fechas = st.selectbox(
-                    "Selecciona la columna de FECHAS:",
-                    options=df.columns,
-                    index=None
-                )
-                
-                if col_fechas:
-                    col6, col7 = st.columns(2)
-                    with col6:
-                        fecha_inicio_str = st.text_input("Fecha de inicio (d/m/AAAA):", placeholder="01/01/2024")
-                    with col7:
-                        fecha_fin_str = st.text_input("Fecha de fin (d/m/AAAA):", placeholder="31/12/2024")
-                    
-                    if fecha_inicio_str and fecha_fin_str:
-                        try:
-                            fecha_inicio = datetime.strptime(fecha_inicio_str.strip(), '%d/%m/%Y')
-                            fecha_fin = datetime.strptime(fecha_fin_str.strip(), '%d/%m/%Y')
-                            
-                            if fecha_inicio > fecha_fin:
-                                st.error("❌ La fecha de inicio no puede ser mayor que la fecha de fin")
-                            else:
-                                st.info(f"📅 Rango seleccionado: {fecha_inicio.strftime('%d/%m/%Y')} - {fecha_fin.strftime('%d/%m/%Y')}")
-                                
-                        except ValueError:
-                            st.error("❌ Formato de fecha incorrecto. Use el formato d/m/AAAA (ej: 01/01/2024)")
-            
-            # Botón para generar análisis
-            if col_incidentes and col_colonias:
-                st.markdown("---")
-                
-                # --- NUEVA OPCIÓN DE INTERFAZ: FILTRO ADICIONAL ---
-                st.subheader("🛠️ Filtros Adicionales")
-                ignorar_atencion_medica = st.checkbox(
-                    "Ignorar reportes de tipo 'Atención Médica'", 
-                    value=True,
-                    help="Si esta casilla está marcada, se eliminarán todos los registros que digan 'atención médica' del análisis."
-                )
-                # --------------------------------------------------
+            # Columna de fechas (Necesaria para gráficas de tiempo)
+            col_fechas = st.selectbox("Columna de FECHAS (Requerida para gráficas de línea):", options=["No usar"] + list(df.columns), index=0)
+            if col_fechas == "No usar": col_fechas = None
 
+            # Análisis de Lluvias
+            st.subheader("🌧️ Análisis de Lluvias (Opcional)")
+            analizar_lluvias_check = st.checkbox("Activar análisis de lluvias")
+            col_lluvias, col_fecha_lluvias, col_hora_lluvias = None, None, None
+            if analizar_lluvias_check:
+                c1, c2, c3 = st.columns(3)
+                col_lluvias = c1.selectbox("Columna LLUVIAS:", df.columns, index=None)
+                col_fecha_lluvias = c2.selectbox("Columna FECHA Lluvia:", ["No usar"]+list(df.columns))
+                if col_fecha_lluvias == "No usar": col_fecha_lluvias = None
+                col_hora_lluvias = c3.selectbox("Columna HORA Lluvia:", ["No usar"]+list(df.columns))
+                if col_hora_lluvias == "No usar": col_hora_lluvias = None
+            
+            # Filtro fechas
+            st.subheader("🗓️ Filtro de Rango de Fechas (Opcional)")
+            usar_fechas = st.checkbox("Filtrar por rango de fechas")
+            fecha_inicio, fecha_fin = None, None
+            if usar_fechas and col_fechas:
+                c1, c2 = st.columns(2)
+                fi = c1.text_input("Fecha inicio (d/m/AAAA):", "01/01/2024")
+                ff = c2.text_input("Fecha fin (d/m/AAAA):", "31/12/2024")
+                try:
+                    fecha_inicio = datetime.strptime(fi, '%d/%m/%Y')
+                    fecha_fin = datetime.strptime(ff, '%d/%m/%Y')
+                except:
+                    st.error("Formato de fecha inválido")
+
+            st.markdown("---")
+            
+            # --- NUEVA SECCIÓN: GRÁFICAS AVANZADAS ---
+            st.subheader("📊 Configuración de Gráficas Avanzadas")
+            st.info("Selecciona qué gráficas adicionales deseas incluir en el análisis y en el reporte Word.")
+            
+            graf_top_10 = st.checkbox("Generar gráfica Top 10 Reportes Más Recurrentes", value=True)
+            
+            graf_linea_incidente = st.checkbox("Generar gráfica comparativa mensual del Incidente Más Recurrente", value=False)
+            if graf_linea_incidente and not col_fechas:
+                st.warning("⚠️ Debes seleccionar una 'Columna de FECHAS' arriba para usar esta gráfica.")
+                
+            graf_linea_colonia = st.checkbox("Generar gráfica comparativa mensual de la Colonia Más Recurrente", value=False)
+            if graf_linea_colonia and not col_fechas:
+                st.warning("⚠️ Debes seleccionar una 'Columna de FECHAS' arriba para usar esta gráfica.")
+
+            # Filtro Atención Médica
+            st.subheader("🛠️ Filtros Adicionales")
+            ignorar_atencion_medica = st.checkbox("Ignorar reportes de tipo 'Atención Médica'", value=True)
+
+            # Botón Generar
+            if col_incidentes and col_colonias:
                 if st.button("🚀 Generar Reporte Completo", type="primary", use_container_width=True):
-                    
                     with st.spinner("Procesando datos..."):
-                        # Crear copia para no modificar el original
                         df_clean = df.copy()
-                        
-                        # Aplicar limpieza de texto
                         df_clean[col_incidentes] = df_clean[col_incidentes].apply(limpiar_texto)
                         df_clean[col_colonias] = df_clean[col_colonias].apply(limpiar_texto)
-
-                        # --- MODIFICACIÓN: FILTRO CONDICIONAL ---
+                        
                         if ignorar_atencion_medica:
                             df_clean = df_clean[df_clean[col_incidentes] != "atencion medica"]
-                        # -----------------------------------------
-                        
-                        # Aplicar filtro de fechas si está activado
-                        if usar_fechas and fecha_inicio and fecha_fin and col_fechas:
+
+                        # Parsear fecha si se seleccionó columna, independientemente del filtro de rango
+                        if col_fechas:
                             df_clean['fecha_parseada'] = df_clean[col_fechas].apply(parsear_fecha)
-                            df_filtrado = df_clean.dropna(subset=['fecha_parseada'])
-                            df_filtrado = df_filtrado[
-                                (df_filtrado['fecha_parseada'] >= fecha_inicio) & 
-                                (df_filtrado['fecha_parseada'] <= fecha_fin)
-                            ]
-                            st.info(f"📊 Datos filtrados: {len(df_filtrado)} registros de {len(df_clean)} originales")
-                            df_clean = df_filtrado
+                            # Eliminar filas donde la fecha no se pudo leer si se van a usar gráficas de tiempo
+                            if graf_linea_incidente or graf_linea_colonia:
+                                df_clean = df_clean.dropna(subset=['fecha_parseada'])
+
+                        # Aplicar filtro de rango si aplica
+                        if usar_fechas and fecha_inicio and fecha_fin and col_fechas:
+                            df_clean = df_clean[(df_clean['fecha_parseada'] >= fecha_inicio) & 
+                                                (df_clean['fecha_parseada'] <= fecha_fin)]
                         
-                        # Verificar que hay datos después del filtrado
                         if df_clean.empty:
-                            st.error("❌ No hay datos después del filtrado. Ajusta los criterios de filtro.")
+                            st.error("No hay datos tras los filtros.")
                             return
-                        
-                        # Generar conteos
+
+                        # Conteos Básicos
                         conteos = {}
-                        conteos["Conteo General de Incidentes"] = df_clean[col_incidentes].value_counts()
+                        conteos["Conteo General"] = df_clean[col_incidentes].value_counts()
+                        conteos["Conteo Colonias"] = df_clean[col_colonias].value_counts()
                         
-                        if col_colonias in df_clean.columns:
-                            top_10_colonias = df_clean[col_colonias].value_counts().head(10)
-                            conteos["Top 10 Colonias con Más Afectaciones"] = top_10_colonias
-                        
-                        # --- NUEVO: ANÁLISIS DE LLUVIAS MANUAL ---
-                        resultado_lluvias = None
+                        # Lluvias
+                        res_lluvias = None
                         if analizar_lluvias_check and col_lluvias:
-                            with st.spinner("Analizando reportes por lluvias..."):
-                                resultado_lluvias = analizar_lluvias_manual(
-                                    df_clean, col_lluvias, col_colonias, col_fecha_lluvias, col_hora_lluvias
-                                )
-                                
-                                if resultado_lluvias is not None:
-                                    # Agregar conteos de lluvias a los resultados principales
-                                    conteos["Incidentes Relacionados con Lluvias"] = resultado_lluvias['conteo_incidentes_lluvias']
-                                    conteos["Colonias más Afectadas por Lluvias"] = resultado_lluvias['conteo_colonias_lluvias'].head(10)
+                            res_lluvias = analizar_lluvias_manual(df_clean, col_lluvias, col_colonias, col_fecha_lluvias, col_hora_lluvias)
+                            if res_lluvias:
+                                conteos["Lluvias por Incidente"] = res_lluvias['conteo_incidentes_lluvias']
+                                conteos["Lluvias por Colonia"] = res_lluvias['conteo_colonias_lluvias'].head(10)
+
+                        # --- MOSTRAR RESULTADOS ---
+                        st.header("3. 📈 Resultados")
                         
-                        # Mostrar resultados en la interfaz
-                        st.header("3. 📈 Resultados del Análisis")
+                        # Métricas
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Total Incidentes", len(df_clean))
+                        c2.metric("Tipos Únicos", df_clean[col_incidentes].nunique())
+                        c3.metric("Colonias Únicas", df_clean[col_colonias].nunique())
+
+                        # Diccionario para imágenes de Word
+                        imagenes_word = {}
+
+                        # 1. Gráficas Básicas (Conteo General)
+                        st.subheader("Distribución General")
+                        st.dataframe(conteos["Conteo General"].reset_index(), use_container_width=True)
+                        fig_gen = generar_grafica_plotly(conteos["Conteo General"].head(15), "Top Incidentes (General)")
+                        st.plotly_chart(fig_gen, use_container_width=True)
+                        # Guardar para word
+                        imagenes_word["General"] = generar_grafica_bar(conteos["Conteo General"].head(15), "Resumen Incidentes", "graf_gen.png")
+
+                        # --- GRÁFICAS AVANZADAS SOLICITADAS ---
                         
-                        # Métricas rápidas
-                        col_met1, col_met2, col_met3 = st.columns(3)
-                        with col_met1:
-                            total_incidentes = len(df_clean)
-                            st.metric("Total de Incidentes", total_incidentes)
-                        with col_met2:
-                            tipos_incidentes = len(conteos["Conteo General de Incidentes"])
-                            st.metric("Tipos de Incidentes", tipos_incidentes)
-                        with col_met3:
-                            total_colonias = df_clean[col_colonias].nunique()
-                            st.metric("Colonias Afectadas", total_colonias)
-                        
-                        # Mostrar métricas de lluvias si se analizaron
-                        if analizar_lluvias_check and resultado_lluvias is not None:
-                            st.subheader("🌧️ Resultados de Análisis de Lluvias")
+                        # A) TOP 10 REPORTES
+                        if graf_top_10:
+                            st.subheader("🏆 Top 10 Reportes Más Recurrentes")
+                            top_10_data = conteos["Conteo General"].head(10)
                             
-                            col_met4, col_met5, col_met6 = st.columns(3)
-                            with col_met4:
-                                st.metric("Reportes por Lluvias", resultado_lluvias['estadisticas']['total_lluvias'])
-                            with col_met5:
-                                st.metric("% por Lluvias", f"{resultado_lluvias['estadisticas']['porcentaje_lluvias']:.1f}%")
-                            with col_met6:
-                                colonia_mas = resultado_lluvias['colonia_mas_afectada'].index[0]
-                                cantidad_mas = resultado_lluvias['colonia_mas_afectada'].iloc[0]
-                                st.metric("Colonia más afectada", f"{colonia_mas} ({cantidad_mas})")
+                            # Streamlit
+                            fig_top10 = generar_grafica_plotly(top_10_data, "Top 10 Reportes")
+                            st.plotly_chart(fig_top10, use_container_width=True)
                             
-                            # Información de fecha y hora si está disponible
-                            if resultado_lluvias['analisis_fecha_hora']:
-                                analisis_fh = resultado_lluvias['analisis_fecha_hora']
-                                
-                                if not analisis_fh['dia_mas_lluvias'].empty:
-                                    dia_mas = analisis_fh['dia_mas_lluvias'].index[0]
-                                    cantidad_dia = analisis_fh['dia_mas_lluvias'].iloc[0]
-                                    st.info(f"📅 **Día con más lluvias:** {dia_mas} ({cantidad_dia} reportes)")
-                                
-                                if analisis_fh['hora_mas_lluvias'] is not None and not analisis_fh['hora_mas_lluvias'].empty:
-                                    hora_mas = analisis_fh['hora_mas_lluvias'].index[0]
-                                    cantidad_hora = analisis_fh['hora_mas_lluvias'].iloc[0]
-                                    st.info(f"⏰ **Hora con más lluvias:** {hora_mas}:00 hrs ({cantidad_hora} reportes)")
-                        
-                        # Mostrar tablas y gráficas
-                        for nombre, conteo in conteos.items():
-                            st.subheader(nombre)
-                            
-                            # Mostrar tabla
-                            df_display = conteo.reset_index()
-                            if "Colonias" in nombre:
-                                df_display.columns = ['Colonia', 'Cantidad de Afectaciones']
+                            # Word
+                            imagenes_word["Top 10 Reportes"] = generar_grafica_bar(top_10_data, "Top 10 Reportes Más Recurrentes", "graf_top10.png")
+
+                        # B) LÍNEA TIEMPO: REPORTE MÁS RECURRENTE
+                        if graf_linea_incidente:
+                            if col_fechas and 'fecha_parseada' in df_clean.columns:
+                                st.subheader("📈 Comparación Mensual: Reporte Más Recurrente")
+                                try:
+                                    # Encontrar el top 1
+                                    top_incidente = conteos["Conteo General"].idxmax()
+                                    st.info(f"El reporte más recurrente es: **{top_incidente.upper()}**")
+                                    
+                                    # Filtrar datos
+                                    df_top_inc = df_clean[df_clean[col_incidentes] == top_incidente].copy()
+                                    # Agrupar por mes
+                                    df_top_inc['mes_anio'] = df_top_inc['fecha_parseada'].dt.to_period('M')
+                                    trend_incidente = df_top_inc.groupby('mes_anio').size()
+                                    
+                                    # Streamlit
+                                    fig_line_inc = generar_grafica_linea_plotly(trend_incidente, f"Tendencia Mensual: {top_incidente.title()}", "Mes", "Cantidad")
+                                    st.plotly_chart(fig_line_inc, use_container_width=True)
+                                    
+                                    # Word
+                                    imagenes_word[f"Tendencia {top_incidente}"] = generar_grafica_linea(
+                                        trend_incidente, 
+                                        f"Tendencia Mensual: {top_incidente.title()}", 
+                                        "Mes", "Cantidad", "graf_linea_inc.png"
+                                    )
+                                except Exception as e:
+                                    st.warning(f"No se pudo generar la gráfica de línea de incidentes: {e}")
                             else:
-                                df_display.columns = ['Tipo de Incidente', 'Cantidad']
-                            
-                            st.dataframe(df_display, use_container_width=True)
-                            
-                            # Mostrar gráfica interactiva
-                            fig = generar_grafica_plotly(conteo, nombre)
-                            st.plotly_chart(fig, use_container_width=True)
+                                st.error("No se puede generar la gráfica de línea sin una columna de fechas válida.")
+
+                        # C) LÍNEA TIEMPO: COLONIA MÁS RECURRENTE
+                        if graf_linea_colonia:
+                            if col_fechas and 'fecha_parseada' in df_clean.columns:
+                                st.subheader("📈 Comparación Mensual: Colonia Más Recurrente")
+                                try:
+                                    # Encontrar top 1 colonia
+                                    top_colonia = conteos["Conteo Colonias"].idxmax()
+                                    st.info(f"La colonia con más reportes es: **{top_colonia.upper()}**")
+                                    
+                                    # Filtrar
+                                    df_top_col = df_clean[df_clean[col_colonias] == top_colonia].copy()
+                                    # Agrupar
+                                    df_top_col['mes_anio'] = df_top_col['fecha_parseada'].dt.to_period('M')
+                                    trend_colonia = df_top_col.groupby('mes_anio').size()
+                                    
+                                    # Streamlit
+                                    fig_line_col = generar_grafica_linea_plotly(trend_colonia, f"Tendencia Mensual: {top_colonia.title()}", "Mes", "Cantidad")
+                                    st.plotly_chart(fig_line_col, use_container_width=True)
+                                    
+                                    # Word
+                                    imagenes_word[f"Tendencia {top_colonia}"] = generar_grafica_linea(
+                                        trend_colonia, 
+                                        f"Tendencia Mensual: {top_colonia.title()}", 
+                                        "Mes", "Cantidad", "graf_linea_col.png"
+                                    )
+                                except Exception as e:
+                                    st.warning(f"No se pudo generar la gráfica de línea de colonias: {e}")
+                            else:
+                                st.error("No se puede generar la gráfica de línea sin una columna de fechas válida.")
+
+                        # Gráficas de Lluvias (si aplica)
+                        if res_lluvias:
+                            st.subheader("🌧️ Lluvias")
+                            fig_lluv = crear_grafico_lluvias(res_lluvias['conteo_colonias_lluvias'], "Top Colonias (Lluvias)")
+                            st.plotly_chart(fig_lluv, use_container_width=True)
+                            imagenes_word["Lluvias"] = generar_grafica_bar(res_lluvias['conteo_colonias_lluvias'].head(10), "Lluvias por Colonia", "graf_lluvias.png")
+
+                        # DESCARGAS
+                        st.header("4. 📄 Descargar Reportes")
+                        st.success("✅ Reportes generados.")
                         
-                        # --- NUEVO: GRÁFICO ESPECIALIZADO DE LLUVIAS ---
-                        if analizar_lluvias_check and resultado_lluvias is not None:
-                            st.subheader("🌧️ Análisis Detallado de Reportes por Lluvias")
-                            
-                            # Gráfico especializado de colonias afectadas por lluvias
-                            fig_lluvias = crear_grafico_lluvias(
-                                resultado_lluvias['conteo_colonias_lluvias'],
-                                "Top 10 Colonias más Afectadas por Lluvias"
-                            )
-                            st.plotly_chart(fig_lluvias, use_container_width=True)
-                            
-                            # Mostrar tabla detallada de incidentes por lluvias
-                            if resultado_lluvias['conteo_incidentes_lluvias'] is not None:
-                                st.subheader("📋 Tipos de Incidentes durante Lluvias")
-                                df_incidentes_lluvias = resultado_lluvias['conteo_incidentes_lluvias'].reset_index()
-                                df_incidentes_lluvias.columns = ['Tipo de Incidente', 'Cantidad durante Lluvias']
-                                st.dataframe(df_incidentes_lluvias, use_container_width=True)
+                        # Generar Word con TODAS las imágenes (básicas + avanzadas)
+                        doc_path = generar_reporte_word(conteos, imagenes_word)
+                        st.markdown(get_download_link(doc_path, "Descargar Reporte Word (.docx)"), unsafe_allow_html=True)
                         
-                        # Generar gráficas para el reporte Word
-                        st.header("4. 📄 Generando Reportes Descargables")
-                        with st.spinner("Generando gráficas para el reporte..."):
-                            imagenes = {}
-                            for k, v in conteos.items():
-                                safe_filename = f"grafica_{k.replace(' ', '_').replace('/', '_').lower()}.png"
-                                imagenes[k] = generar_grafica_bar(v, k, safe_filename)
-                        
-                        # Generar y ofrecer descarga de reportes
-                        st.success("✅ Reportes generados correctamente")
-                        
-                        col_dl1, col_dl2 = st.columns(2)
-                        
-                        with col_dl1:
-                            with st.spinner("Generando reporte Word..."):
-                                doc_path = generar_reporte_word(conteos, imagenes)
-                                st.markdown(get_download_link(doc_path, "Descargar Reporte Word (.docx)"), unsafe_allow_html=True)
-                        
-                        with col_dl2:
-                            with st.spinner("Generando reporte de texto..."):
-                                txt_path = generar_reporte_txt(conteos)
-                                st.markdown(get_download_link(txt_path, "Descargar Reporte Texto (.txt)"), unsafe_allow_html=True)
-                        
-                        # Limpiar archivos temporales
-                        for path in imagenes.values():
-                            try:
-                                if os.path.exists(path):
-                                    os.remove(path)
-                            except:
-                                pass
-            
+                        txt_path = generar_reporte_txt(conteos)
+                        st.markdown(get_download_link(txt_path, "Descargar Reporte Texto (.txt)"), unsafe_allow_html=True)
+
+                        # Limpieza
+                        for path in imagenes_word.values():
+                            if os.path.exists(path): os.remove(path)
+
             else:
-                st.warning("⚠️ Por favor, selecciona ambas columnas (INCIDENTES y COLONIAS) para continuar.")
-                
+                st.warning("Selecciona las columnas de Incidentes y Colonias para continuar.")
+
         except Exception as e:
-            st.error(f"❌ Error al procesar el archivo: {str(e)}")
-            st.info("💡 **Sugerencias:** Verifica que el archivo no esté dañado y que tenga el formato correcto.")
-    
+            st.error(f"Error: {e}")
     else:
-        st.info("👆 Por favor, sube un archivo CSV o Excel para comenzar el análisis.")
-        st.markdown("""
-        ### 📝 Instrucciones:
-        1. **Sube tu archivo** de datos (CSV o Excel)
-        2. **Selecciona las columnas** correspondientes a incidentes y colonias
-        3. **Configura los filtros** si es necesario
-        4. **Genera el reporte** y descarga los resultados
-        
-        ### 🌧️ Nueva funcionalidad:
-        - **Análisis de reportes por lluvias**: Activa la opción para análisis específico
-        - **Selección manual**: Elige la columna que indica si fue por lluvias
-        - **Análisis por fecha y hora**: Identifica el día y hora con más lluvias
-        - **Colonia más afectada**: Detecta automáticamente la colonia con más reportes por lluvias
-        """)
+        st.info("Sube un archivo para comenzar.")
 
 if __name__ == "__main__":
     main()
