@@ -5,3 +5,6 @@ python-docx
 plotly
 matplotlib
 openpyxl
+geopandas
+folium
+streamlit-folium
