@@ -426,6 +426,11 @@ def main():
                         # Aplicar limpieza de texto
                         df_clean[col_incidentes] = df_clean[col_incidentes].apply(limpiar_texto)
                         df_clean[col_colonias] = df_clean[col_colonias].apply(limpiar_texto)
+
+                        # --- MODIFICACIÓN: IGNORAR "ATENCION MEDICA" ---
+                        # Se eliminan los registros donde el incidente es "atencion medica" (normalizado)
+                        df_clean = df_clean[df_clean[col_incidentes] != "atencion medica"]
+                        # -----------------------------------------------
                         
                         # Aplicar filtro de fechas si está activado
                         if usar_fechas and fecha_inicio and fecha_fin and col_fechas:
@@ -440,7 +445,7 @@ def main():
                         
                         # Verificar que hay datos después del filtrado
                         if df_clean.empty:
-                            st.error("❌ No hay datos después del filtrado. Ajusta los criterios de filtro.")
+                            st.error("❌ No hay datos después del filtrado. Ajusta los criterios de filtro o verifica si todos eran 'atención médica'.")
                             return
                         
                         # Generar conteos
