@@ -417,6 +417,16 @@ def main():
             # Botón para generar análisis
             if col_incidentes and col_colonias:
                 st.markdown("---")
+                
+                # --- NUEVA OPCIÓN DE INTERFAZ: FILTRO ADICIONAL ---
+                st.subheader("🛠️ Filtros Adicionales")
+                ignorar_atencion_medica = st.checkbox(
+                    "Ignorar reportes de tipo 'Atención Médica'", 
+                    value=True,
+                    help="Si esta casilla está marcada, se eliminarán todos los registros que digan 'atención médica' del análisis."
+                )
+                # --------------------------------------------------
+
                 if st.button("🚀 Generar Reporte Completo", type="primary", use_container_width=True):
                     
                     with st.spinner("Procesando datos..."):
@@ -427,10 +437,10 @@ def main():
                         df_clean[col_incidentes] = df_clean[col_incidentes].apply(limpiar_texto)
                         df_clean[col_colonias] = df_clean[col_colonias].apply(limpiar_texto)
 
-                        # --- MODIFICACIÓN: IGNORAR "ATENCION MEDICA" ---
-                        # Se eliminan los registros donde el incidente es "atencion medica" (normalizado)
-                        df_clean = df_clean[df_clean[col_incidentes] != "atencion medica"]
-                        # -----------------------------------------------
+                        # --- MODIFICACIÓN: FILTRO CONDICIONAL ---
+                        if ignorar_atencion_medica:
+                            df_clean = df_clean[df_clean[col_incidentes] != "atencion medica"]
+                        # -----------------------------------------
                         
                         # Aplicar filtro de fechas si está activado
                         if usar_fechas and fecha_inicio and fecha_fin and col_fechas:
@@ -445,7 +455,7 @@ def main():
                         
                         # Verificar que hay datos después del filtrado
                         if df_clean.empty:
-                            st.error("❌ No hay datos después del filtrado. Ajusta los criterios de filtro o verifica si todos eran 'atención médica'.")
+                            st.error("❌ No hay datos después del filtrado. Ajusta los criterios de filtro.")
                             return
                         
                         # Generar conteos
