@@ -143,9 +143,7 @@ def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, fil
 
 def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_genero, titulo, filename):
     """
-    Gráfica específica para Porcentaje de Género.
-    - Colores fijos: Azul (M) y Púrpura (F).
-    - Eje Y en porcentaje.
+    Gráfica específica para Porcentaje de Género con ETIQUETAS VISIBLES.
     """
     if df_long.empty: return None
     
@@ -157,14 +155,32 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
         if subset.empty: continue
         
         x_vals = [formatear_periodo_es(p) for p in subset[col_periodo]]
-        y_vals = subset[col_pct]
+        y_vals = subset[col_pct].values
         
-        ax.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=3, label=genero, color=color_map.get(genero, 'grey'))
+        # Color definido
+        color = color_map.get(genero, 'grey')
+        
+        # Graficar línea
+        ax.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=3, label=genero, color=color)
+        
+        # --- AGREGAR ETIQUETAS DE TEXTO SOBRE LA LÍNEA ---
+        for x, y in zip(x_vals, y_vals):
+            # Formato: 45% (negrita, mismo color que la línea, un poco arriba del punto)
+            ax.annotate(f'{y:.0f}%', 
+                        xy=(x, y), 
+                        xytext=(0, 8), # 8 puntos arriba
+                        textcoords='offset points',
+                        ha='center', 
+                        va='bottom',
+                        fontsize=9,
+                        fontweight='bold',
+                        color=color)
+        # -------------------------------------------------
     
     ax.set_title(titulo, fontsize=14, fontweight='bold')
     ax.set_xlabel("Mes", fontweight='bold')
     ax.set_ylabel("Porcentaje (%)", fontweight='bold')
-    ax.set_ylim(0, 105)
+    ax.set_ylim(0, 115) # Más espacio arriba para las etiquetas
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
     
     plt.xticks(rotation=45, ha='right', fontsize=9)
@@ -193,18 +209,28 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
     df_plot = df_plot.sort_values(col_periodo)
     df_plot['Mes_Texto'] = df_plot[col_periodo].apply(formatear_periodo_es)
     
+    # Crear columna de texto para mostrar en la gráfica
+    if es_porcentaje:
+        df_plot['Etiqueta'] = df_plot[col_y].apply(lambda x: f"{x:.1f}%")
+    else:
+        df_plot['Etiqueta'] = df_plot[col_y].astype(str)
+
     color_discrete_map = None
     if es_porcentaje and col_color:
          color_discrete_map = {'Masculino': 'blue', 'Femenino': 'purple'}
 
     if col_color:
         fig = px.line(df_plot, x='Mes_Texto', y=col_y, color=col_color, title=titulo, markers=True,
+                      text='Etiqueta', # Muestra el texto siempre
                       color_discrete_map=color_discrete_map)
     else:
-        fig = px.line(df_plot, x='Mes_Texto', y=col_y, title=titulo, markers=True)
+        fig = px.line(df_plot, x='Mes_Texto', y=col_y, title=titulo, markers=True, text='Etiqueta')
     
+    # Asegurar que el texto se vea arriba del punto
+    fig.update_traces(textposition="top center")
+
     if es_porcentaje:
-        fig.update_yaxes(range=[0, 105], title="Porcentaje (%)")
+        fig.update_yaxes(range=[0, 110], title="Porcentaje (%)")
         fig.update_traces(hovertemplate='%{y:.1f}%')
         
     fig.update_xaxes(type='category', title="Mes")
@@ -248,7 +274,6 @@ def generar_reporte_word(conteos, imagenes):
     doc.add_page_break()
     doc.add_heading('Gráficas Visuales', 1)
     
-    # Orden de aparición
     orden = ['General', 'Tendencia Porcentaje Género', 'Tendencia Incidentes', 'Tendencia Colonias', 
              'Tipos Lluvia', 'Colonias Lluvia', 'Tendencia Tipos Lluvia', 'Tendencia Total Lluvias']
     
@@ -368,19 +393,16 @@ def main():
             }
             imgs = {}
 
-            # Lluvias
-            res_lluv = None
             if check_lluvias and col_lluvias:
                 res_lluv = analizar_lluvias_manual(df_c, col_lluvias, col_col, col_inc)
                 if res_lluv:
                     conteos["Tipos de Incidentes en Lluvias"] = res_lluv['conteo_incidentes']
                     conteos["Colonias Afectadas por Lluvias"] = res_lluv['conteo_colonias']
+            else:
+                res_lluv = None
             
-            # Género Normalizado
             if col_genero:
                  df_c['genero_norm'] = df_c[col_genero].apply(normalizar_genero)
-                 # Filtrar 'None' para el conteo general también, si se desea limpieza total
-                 # Pero para el conteo general, a veces es útil ver los 'Nulos', lo dejaremos.
                  conteos["Desglose por Género"] = df_c['genero_norm'].fillna('No identificado').value_counts()
 
             # --- RESULTADOS ---
@@ -391,7 +413,6 @@ def main():
             if res_lluv:
                 c3.metric("Reportes Lluvia", res_lluv['estadisticas']['total_lluvias'])
             
-            # Barras General
             st.subheader("Vista General")
             top_gen = conteos["General"].head(15)
             st.plotly_chart(generar_grafica_plotly_bar(top_gen, "Top Incidentes"), use_container_width=True)
@@ -400,17 +421,12 @@ def main():
             # --- GRÁFICA PORCENTAJE GÉNERO ---
             if valid_fechas and col_genero and graf_pct_genero:
                 try:
-                    # 1. Filtrar ESTRICTAMENTE Masculino y Femenino
                     df_gen = df_c[df_c['genero_norm'].isin(['Masculino', 'Femenino'])].copy()
                     
                     if not df_gen.empty:
-                        # 2. Agrupar por mes y género
                         conteo_gen_mes = df_gen.groupby(['mes', 'genero_norm']).size().reset_index(name='cuenta')
-                        
-                        # 3. Calcular total por mes (Solo de M y F)
                         total_mes = df_gen.groupby('mes').size().reset_index(name='total_mes')
                         
-                        # 4. Calcular %
                         df_pct_gen = pd.merge(conteo_gen_mes, total_mes, on='mes')
                         df_pct_gen['porcentaje'] = (df_pct_gen['cuenta'] / df_pct_gen['total_mes']) * 100
                         
@@ -429,7 +445,6 @@ def main():
                 except Exception as e:
                     st.error(f"Error calculando porcentaje de género: {e}")
             
-            # Líneas Tendencia General
             if valid_fechas:
                 if graf_linea_inc:
                     try:
@@ -453,7 +468,6 @@ def main():
                             imgs["Tendencia Colonias"] = generar_grafica_linea_multiple(data_linea_c, 'mes', 'conteo', col_col, "Comparativa: Top 10 Colonias", "l_col.png")
                     except: pass
 
-            # Lluvias Visuales
             if res_lluv:
                 st.markdown("---")
                 st.header("🌧️ Análisis Detallado de Lluvias")
@@ -469,7 +483,7 @@ def main():
                 if valid_fechas:
                     df_lluvia_t = res_lluv['df_filtrado'].copy()
                     df_lluvia_t['mes'] = df_lluvia_t['fecha_p'].dt.to_period('M')
-                    
+
                     try:
                         top5_inc_lluvia = res_lluv['conteo_incidentes'].head(5).index.tolist()
                         df_top_lluvia = df_lluvia_t[df_lluvia_t[col_inc].isin(top5_inc_lluvia)]
@@ -477,7 +491,10 @@ def main():
                             data_linea_lluvia = df_top_lluvia.groupby(['mes', col_inc]).size().reset_index(name='conteo')
                             st.subheader("📈 Tendencia por Tipo de Incidente (Solo Lluvias)")
                             st.plotly_chart(generar_grafica_plotly_linea(data_linea_lluvia, 'mes', 'conteo', col_inc, "Evolución Tipos (Lluvias)"), use_container_width=True)
-                            imgs["Tendencia Tipos Lluvia"] = generar_grafica_linea_multiple(data_linea_lluvia, 'mes', 'conteo', col_inc, "Evolución Tipos de Reporte (Lluvias)", "l_tipo_lluv.png")
+                            imgs["Tendencia Tipos Lluvia"] = generar_grafica_linea_multiple(
+                                data_linea_lluvia, 'mes', 'conteo', col_inc, 
+                                "Evolución Tipos de Reporte (Lluvias)", "l_tipo_lluv.png"
+                            )
                     except: pass
                     
                     try:
@@ -486,7 +503,6 @@ def main():
                             imgs["Tendencia Total Lluvias"] = generar_grafica_linea_simple(data_total_lluvia.set_index('mes')['conteo'], "Volumen Total de Reportes por Lluvia", "Mes", "Cantidad", "l_total_lluv.png")
                     except: pass
 
-            # Descargas
             st.success("✅ Generado Exitosamente")
             c1, c2 = st.columns(2)
             c1.markdown(get_link(generar_reporte_word(conteos, imgs), "Word"), unsafe_allow_html=True)
