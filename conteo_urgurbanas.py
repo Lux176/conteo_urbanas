@@ -165,12 +165,12 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo)
     df_plot = df_plot.sort_values(col_periodo)
     
     # Crear columna de texto bonita
-    df_plot['Mes_Texto'] = df_plot[col_periodo].apply(formatear_periodo_es)
+    df_plot['Mes'] = df_plot[col_periodo].apply(formatear_periodo_es)
     
     if col_color:
-        fig = px.line(df_plot, x='Mes_Texto', y=col_y, color=col_color, title=titulo, markers=True)
+        fig = px.line(df_plot, x='Mes', y=col_y, color=col_color, title=titulo, markers=True)
     else:
-        fig = px.line(df_plot, x='Mes_Texto', y=col_y, title=titulo, markers=True)
+        fig = px.line(df_plot, x='Mes', y=col_y, title=titulo, markers=True)
     
     # Importante: Decirle a Plotly que no ordene alfabéticamente el eje X ("Abril" antes de "Enero"),
     # sino que respete el orden de aparición (que ya ordenamos por fecha arriba)
