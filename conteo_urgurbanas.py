@@ -69,13 +69,12 @@ def parsear_fecha(fecha):
     try: return pd.to_datetime(fecha, dayfirst=True).to_pydatetime()
     except: return None
 
-# --- NUEVA FUNCIÓN: CLASIFICACIÓN DE ENFERMEDADES POR TEXTO ---
+# --- FUNCIÓN: CLASIFICACIÓN DE ENFERMEDADES POR TEXTO ---
 def clasificar_enfermedad(texto):
     """Analiza la descripción y busca palabras clave de padecimientos comunes."""
     t = limpiar_texto(texto)
     if not t: return "No especificado"
     
-    # DICCIONARIO DE PALABRAS CLAVE (Puedes agregar más aquí)
     keywords = {
         'Diabetes / Glucosa': ['diabet', 'glucos', 'azucar', 'hiperglucemia', 'hipoglucemia', 'insulin'],
         'Hipertensión / Presión': ['hiperten', 'presion', 't/a', 'hta', 'tension'],
@@ -94,12 +93,12 @@ def clasificar_enfermedad(texto):
         for term in terms:
             if term in t:
                 found.append(cat)
-                break # Si encuentra una palabra de la categoría, pasa a la siguiente categoría
+                break 
     
     if not found:
         return "Otros / No detectado"
     
-    return ", ".join(found) # Devuelve todas las categorías encontradas (puede tener multiples)
+    return ", ".join(found)
 
 # --- FUNCIONES DE GRÁFICAS (Matplotlib - Word) ---
 
@@ -276,19 +275,14 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
     if df_long.empty: return px.line(title="Sin datos")
     df_plot = df_long.copy()
     
-    # 1. CREAR TIMESTAMP PRIMERO
     try:
         df_plot['Fecha_X'] = df_plot[col_periodo].dt.to_timestamp()
     except:
         df_plot['Fecha_X'] = pd.to_datetime(df_plot[col_periodo].astype(str), errors='coerce')
 
-    # 2. ELIMINAR NULOS DE FECHA
     df_plot = df_plot.dropna(subset=['Fecha_X'])
-
-    # 3. ORDENAR EXPLÍCITAMENTE POR TIMESTAMP
     df_plot = df_plot.sort_values('Fecha_X')
     
-    # 4. Crear etiqueta de texto
     df_plot['Mes_Texto'] = df_plot[col_periodo].apply(formatear_periodo_es)
     
     if es_porcentaje: df_plot['Etiqueta'] = df_plot[col_y].apply(lambda x: f"{x:.1f}%")
@@ -367,6 +361,7 @@ def generar_reporte_word(conteos, imagenes):
     doc.add_paragraph(f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     
     doc.add_heading('Resumen de Datos', 1)
+    # Aquí se genera la TABLA de Padecimientos automáticamente al iterar conteos
     for nombre, conteo in conteos.items():
         if conteo is None or conteo.empty: continue
         doc.add_heading(nombre, 2)
@@ -382,10 +377,10 @@ def generar_reporte_word(conteos, imagenes):
     doc.add_page_break()
     doc.add_heading('Gráficas Visuales', 1)
     
-    # Nuevo Orden incluyendo análisis de texto médico
     orden = ['General', 'Rango de Edad Dominante por Colonia', 'Padecimientos Detectados (Texto)',
              'Tendencia Porcentaje Género', 'Tendencia Incidentes', 'Tendencia Colonias', 
-             'Tipos Lluvia', 'Colonias Lluvia', 'Tendencia Tipos Lluvia', 'Tendencia Total Lluvias']
+             'Tipos Lluvia', 'Colonias Lluvia', 'Tendencia Tipos Lluvia', 'Tendencia Total Lluvias',
+             'Opiniones Técnicas por Clasificación', 'Tendencia Opiniones Técnicas por Mes']
     
     for titulo in orden:
         if titulo in imagenes and os.path.exists(imagenes[titulo]):
@@ -425,10 +420,10 @@ def main():
     st.title("📊 Analizador de Urgencias Operativas")
     
     # 1. CARGA
-    st.header("1. Datos")
-    f = st.file_uploader("Archivo (CSV/Excel)", type=['csv','xlsx'])
+    st.header("1. Datos Operativos (Principal)")
+    f = st.file_uploader("Archivo Operativo (CSV/Excel)", type=['csv','xlsx'])
     if not f: 
-        st.info("Sube un archivo.")
+        st.info("Sube un archivo para comenzar.")
         return
 
     try:
@@ -439,7 +434,7 @@ def main():
         return
 
     # 2. CONFIGURACIÓN
-    st.header("2. Configuración")
+    st.header("2. Configuración General")
     c1, c2 = st.columns(2)
     col_inc = c1.selectbox("Columna INCIDENTES:", df.columns)
     col_col = c2.selectbox("Columna COLONIAS:", df.columns)
@@ -460,7 +455,6 @@ def main():
     if check_lluvias:
         col_lluvias = st.selectbox("Columna Indicador Lluvia (Sí/No, 1/0):", df.columns)
 
-    # --- NUEVA SECCIÓN DE CONFIGURACIÓN PARA ANÁLISIS DE TEXTO ---
     st.markdown("---")
     st.subheader("🏥 Análisis de Descripción (Padecimientos/Enfermedades)")
     check_txt_med = st.checkbox("Analizar Descripciones (Ej. Buscar Diabetes, Hipertensión, etc.)")
@@ -471,7 +465,6 @@ def main():
     
     if check_txt_med:
         c_txt1, c_txt2 = st.columns(2)
-        # Intenta encontrar la columna que dijo el usuario por defecto
         idx_desc = 0
         if "descripcion_del_incidente" in df.columns:
             idx_desc = list(df.columns).index("descripcion_del_incidente")
@@ -479,12 +472,36 @@ def main():
         col_desc_med = c_txt1.selectbox("Columna con la DESCRIPCIÓN:", df.columns, index=idx_desc)
         col_filtro_med = c_txt2.selectbox("Columna para FILTRAR (Ej. Tipo de Incidente):", df.columns, index=0)
         
-        # Obtenemos valores únicos para que el usuario elija qué filtrar
         unique_vals = df[col_filtro_med].dropna().unique().tolist()
         val_filtro_med = st.multiselect(f"Selecciona valores de '{col_filtro_med}' a analizar (Ej. Atencion Medica):", unique_vals)
         
         if not val_filtro_med:
-            st.warning("⚠️ Debes seleccionar al menos un valor para filtrar (o selecciona todos si quieres analizar todo).")
+            st.warning("⚠️ Debes seleccionar al menos un valor para filtrar.")
+
+    # --- NUEVA SECCIÓN: OPINIONES TÉCNICAS ---
+    st.markdown("---")
+    st.subheader("📂 Módulo Extra: Opiniones Técnicas")
+    check_opiniones = st.checkbox("Analizar Opiniones Técnicas (Subir otro documento)")
+    
+    df_op = None
+    col_fecha_op = None
+    col_tipo_op = None
+    col_colonia_op = None
+    
+    if check_opiniones:
+        f_op = st.file_uploader("Subir Archivo de Opiniones Técnicas (CSV/Excel)", type=['csv','xlsx'])
+        if f_op:
+            try:
+                df_op = pd.read_excel(f_op) if f_op.name.endswith('.xlsx') else pd.read_csv(f_op)
+                st.success(f"Cargado Opiniones: {len(df_op)} registros.")
+                
+                c_op1, c_op2, c_op3 = st.columns(3)
+                col_fecha_op = c_op1.selectbox("Columna FECHA (Opiniones):", df_op.columns)
+                col_tipo_op = c_op2.selectbox("Columna CLASIFICACIÓN (Ej. Arbolado):", df_op.columns)
+                col_colonia_op = c_op3.selectbox("Columna COLONIA (Opiniones):", df_op.columns)
+                
+            except Exception as e:
+                st.error(f"Error archivo opiniones: {e}")
 
     st.markdown("---")
     st.subheader("🛠️ Filtros y Gráficas Avanzadas")
@@ -499,7 +516,6 @@ def main():
     
     graf_edad_colonia = col_g1.checkbox("Círculos: Rango de Edad Dominante por Colonia", value=False)
 
-    # Validaciones
     if (graf_linea_inc or graf_linea_col or graf_pct_genero) and not col_fecha:
          st.warning("⚠️ Las gráficas de línea requieren una Columna de FECHAS.")
     if graf_pct_genero and not col_genero:
@@ -514,7 +530,6 @@ def main():
             df_c[col_inc] = df_c[col_inc].apply(limpiar_texto)
             df_c[col_col] = df_c[col_col].apply(limpiar_texto)
             
-            # Filtro "Ignorar médica" solo aplica al conteo general, no al analisis medico especifico
             df_general = df_c.copy()
             if ignorar_medica:
                 df_general = df_general[df_general[col_inc] != "atencion medica"]
@@ -525,7 +540,6 @@ def main():
             valid_fechas = False
             if col_fecha:
                 df_c['fecha_p'] = df_c[col_fecha].apply(parsear_fecha)
-                # Aplicamos también a df_general
                 df_general['fecha_p'] = df_c['fecha_p']
                 
                 if df_c['fecha_p'].notna().sum() > 0:
@@ -541,24 +555,47 @@ def main():
             }
             imgs = {}
 
-            # --- ANÁLISIS DE TEXTO MÉDICO ---
+            # PROCESAR OPINIONES TÉCNICAS
+            if check_opiniones and df_op is not None and col_fecha_op and col_tipo_op:
+                try:
+                    df_op_c = df_op.copy()
+                    df_op_c[col_tipo_op] = df_op_c[col_tipo_op].apply(limpiar_texto)
+                    
+                    # 1. Gráfica de Barras (Acumulado)
+                    conteo_tipos_op = df_op_c[col_tipo_op].value_counts()
+                    conteos["Opiniones Técnicas por Clasificación"] = conteo_tipos_op
+                    
+                    st.subheader("📋 Opiniones Técnicas: Clasificación")
+                    st.plotly_chart(generar_grafica_plotly_bar(conteo_tipos_op, "Clasificación Opiniones"), use_container_width=True)
+                    imgs["Opiniones Técnicas por Clasificación"] = generar_grafica_bar(conteo_tipos_op, "Opiniones Técnicas por Clasificación", "g_op_bar.png")
+                    
+                    # 2. Gráfica de Línea (Tendencia)
+                    df_op_c['fecha_p'] = df_op_c[col_fecha_op].apply(parsear_fecha)
+                    if df_op_c['fecha_p'].notna().sum() > 0:
+                        df_op_c = df_op_c.dropna(subset=['fecha_p'])
+                        df_op_c['mes'] = df_op_c['fecha_p'].dt.to_period('M')
+                        
+                        data_linea_op = df_op_c.groupby(['mes', col_tipo_op]).size().reset_index(name='conteo')
+                        
+                        st.subheader("📈 Opiniones Técnicas: Tendencia Mensual")
+                        st.plotly_chart(generar_grafica_plotly_linea(data_linea_op, 'mes', 'conteo', col_tipo_op, "Evolución Opiniones"), use_container_width=True)
+                        imgs["Tendencia Opiniones Técnicas por Mes"] = generar_grafica_linea_multiple(data_linea_op, 'mes', 'conteo', col_tipo_op, "Evolución Opiniones Técnicas", "l_op_time.png")
+                    else:
+                        st.warning("No se pudieron detectar fechas válidas en el archivo de Opiniones.")
+                        
+                except Exception as e:
+                    st.error(f"Error procesando opiniones: {e}")
+
             if check_txt_med and col_desc_med and col_filtro_med and val_filtro_med:
                 try:
-                    # 1. Filtrar solo las filas que el usuario pidió (Ej. solo Atencion Medica)
                     df_med = df[df[col_filtro_med].isin(val_filtro_med)].copy()
-                    
                     if not df_med.empty:
-                        # 2. Aplicar la clasificación de texto
                         df_med['Padecimiento_Detectado'] = df_med[col_desc_med].apply(clasificar_enfermedad)
                         
-                        # 3. Filtrar los "No especificado" si se desea, o dejarlos
-                        conteo_padecimientos = df_med['Padecimiento_Detectado'].value_counts()
-                        # Separar padecimientos múltiples si la función devuelve "Diabetes, Hipertensión"
                         conteo_padecimientos = df_med['Padecimiento_Detectado'].str.split(', ', expand=True).stack().value_counts()
                         
                         conteos["Padecimientos Detectados (Texto)"] = conteo_padecimientos
                         
-                        # 4. Graficar
                         st.subheader(f"🏥 Padecimientos Detectados en {val_filtro_med}")
                         st.plotly_chart(generar_grafica_plotly_bar(conteo_padecimientos.head(15), "Top Padecimientos Detectados"), use_container_width=True)
                         imgs["Padecimientos Detectados (Texto)"] = generar_grafica_bar(conteo_padecimientos.head(15), "Padecimientos Detectados", "g_pad_txt.png")
@@ -582,7 +619,6 @@ def main():
                 df_general['edad_cat'] = df_general[col_edad].apply(limpiar_y_categorizar_edad)
                 conteos["Desglose por Rango Edad"] = df_general['edad_cat'].value_counts()
 
-            # --- RESULTADOS ---
             st.header("3. Resultados")
             c1, c2, c3 = st.columns(3)
             c1.metric("Total", len(df_c))
