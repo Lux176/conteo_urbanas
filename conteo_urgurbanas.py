@@ -29,7 +29,6 @@ def formatear_periodo_es(periodo):
     if pd.isna(periodo): return ""
     meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 
              7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
-    # Intenta obtener mes/año de un objeto Period o Datetime
     try:
         return f"{meses.get(periodo.month, '')} {periodo.year}"
     except:
@@ -70,6 +69,38 @@ def parsear_fecha(fecha):
     try: return pd.to_datetime(fecha, dayfirst=True).to_pydatetime()
     except: return None
 
+# --- NUEVA FUNCIÓN: CLASIFICACIÓN DE ENFERMEDADES POR TEXTO ---
+def clasificar_enfermedad(texto):
+    """Analiza la descripción y busca palabras clave de padecimientos comunes."""
+    t = limpiar_texto(texto)
+    if not t: return "No especificado"
+    
+    # DICCIONARIO DE PALABRAS CLAVE (Puedes agregar más aquí)
+    keywords = {
+        'Diabetes / Glucosa': ['diabet', 'glucos', 'azucar', 'hiperglucemia', 'hipoglucemia', 'insulin'],
+        'Hipertensión / Presión': ['hiperten', 'presion', 't/a', 'hta', 'tension'],
+        'Traumatismo / Caída': ['caida', 'golpe', 'trauma', 'herida', 'escalera', 'tropez', 'altura'],
+        'Respiratorio': ['respiratori', 'disnea', 'aire', 'oxigeno', 'asm', 'epoc', 'bronqu'],
+        'Neurológico (Convulsión/EVC)': ['convulsi', 'epilep', 'sincop', 'desmay', 'inconsciente', 'evc', 'cerebr'],
+        'Cardíaco': ['infarto', 'cardiac', 'pecho', 'corazon', 'taquicardia'],
+        'Gastrointestinal': ['dolor abdominal', 'estomac', 'vomito', 'diarrea', 'gastrit'],
+        'Embarazo / Parto': ['embaraz', 'parto', 'labor', 'gestan', 'bebe'],
+        'Intoxicación': ['intoxica', 'veneno', 'sustancia', 'alcohol', 'ebri'],
+        'Violencia / Agresión': ['agresion', 'riña', 'golpead', 'arma']
+    }
+    
+    found = []
+    for cat, terms in keywords.items():
+        for term in terms:
+            if term in t:
+                found.append(cat)
+                break # Si encuentra una palabra de la categoría, pasa a la siguiente categoría
+    
+    if not found:
+        return "Otros / No detectado"
+    
+    return ", ".join(found) # Devuelve todas las categorías encontradas (puede tener multiples)
+
 # --- FUNCIONES DE GRÁFICAS (Matplotlib - Word) ---
 
 def generar_grafica_bar(conteo, titulo, filename):
@@ -95,7 +126,6 @@ def generar_grafica_linea_simple(datos, titulo, xlabel, ylabel, filename):
     df_plot = datos.reset_index()
     df_plot.columns = ['Periodo', 'Cantidad']
     
-    # MATPLOTLIB FIX: Convertir a Timestamp Y LUEGO ordenar
     try:
         df_plot['Fecha_X'] = df_plot['Periodo'].dt.to_timestamp()
     except:
@@ -131,7 +161,6 @@ def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, fil
     for i, grupo in enumerate(grupos):
         subset = df_long[df_long[col_grupo] == grupo].copy()
         
-        # MATPLOTLIB FIX: Convertir y luego ordenar
         try:
             subset['Fecha_X'] = subset[col_x].dt.to_timestamp()
         except:
@@ -166,7 +195,6 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
         subset = df_long[df_long[col_genero] == genero].copy()
         if subset.empty: continue
         
-        # MATPLOTLIB FIX: Convertir y luego ordenar
         try:
             subset['Fecha_X'] = subset[col_periodo].dt.to_timestamp()
         except:
@@ -199,7 +227,6 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
     plt.close()
     return path
 
-# --- NUEVA FUNCIÓN MATPLOTLIT: CÍRCULOS NEGROS ---
 def generar_grafica_circulos_edad_word(df_data, titulo, filename):
     if df_data.empty: return None
     fig, ax = plt.subplots(figsize=(12, 8))
@@ -245,25 +272,23 @@ def generar_grafica_plotly_bar(conteo, titulo):
     fig = px.bar(df_plot, x='Categoría', y='Cantidad', title=titulo, color='Cantidad')
     return fig
 
-# --- CORRECCIÓN DEFINITIVA PLOTLY: Ordenamiento estricto por Timestamp ---
 def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo, es_porcentaje=False):
     if df_long.empty: return px.line(title="Sin datos")
     df_plot = df_long.copy()
     
-    # 1. CREAR TIMESTAMP PRIMERO (Para garantizar que tenemos fechas reales)
+    # 1. CREAR TIMESTAMP PRIMERO
     try:
         df_plot['Fecha_X'] = df_plot[col_periodo].dt.to_timestamp()
     except:
-        # Fallback si no es Period
         df_plot['Fecha_X'] = pd.to_datetime(df_plot[col_periodo].astype(str), errors='coerce')
 
-    # 2. ELIMINAR NULOS DE FECHA (Por seguridad)
+    # 2. ELIMINAR NULOS DE FECHA
     df_plot = df_plot.dropna(subset=['Fecha_X'])
 
-    # 3. ORDENAR EXPLÍCITAMENTE POR TIMESTAMP (Esto es lo que arregla el ZigZag)
+    # 3. ORDENAR EXPLÍCITAMENTE POR TIMESTAMP
     df_plot = df_plot.sort_values('Fecha_X')
     
-    # 4. Crear etiqueta de texto para tooltip y eje X
+    # 4. Crear etiqueta de texto
     df_plot['Mes_Texto'] = df_plot[col_periodo].apply(formatear_periodo_es)
     
     if es_porcentaje: df_plot['Etiqueta'] = df_plot[col_y].apply(lambda x: f"{x:.1f}%")
@@ -271,7 +296,6 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
 
     color_map = {'Masculino': 'blue', 'Femenino': 'purple'} if (es_porcentaje and col_color) else None
 
-    # Graficar usando 'Fecha_X' como eje X (esto asegura la continuidad temporal)
     if col_color:
         fig = px.line(df_plot, x='Fecha_X', y=col_y, color=col_color, title=titulo, markers=True,
                       text='Etiqueta', color_discrete_map=color_map,
@@ -286,7 +310,6 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
         fig.update_yaxes(range=[0, 115], title="Porcentaje (%)")
         fig.update_traces(hovertemplate='%{y:.1f}%')
 
-    # Configuración del eje X para mostrar texto bonito pero mantener escala de tiempo
     unique_ticks = df_plot[['Fecha_X', 'Mes_Texto']].drop_duplicates().sort_values('Fecha_X')
     
     fig.update_xaxes(
@@ -359,8 +382,9 @@ def generar_reporte_word(conteos, imagenes):
     doc.add_page_break()
     doc.add_heading('Gráficas Visuales', 1)
     
-    orden = ['General', 'Rango de Edad Dominante por Colonia', 'Tendencia Porcentaje Género', 
-             'Tendencia Incidentes', 'Tendencia Colonias', 
+    # Nuevo Orden incluyendo análisis de texto médico
+    orden = ['General', 'Rango de Edad Dominante por Colonia', 'Padecimientos Detectados (Texto)',
+             'Tendencia Porcentaje Género', 'Tendencia Incidentes', 'Tendencia Colonias', 
              'Tipos Lluvia', 'Colonias Lluvia', 'Tendencia Tipos Lluvia', 'Tendencia Total Lluvias']
     
     for titulo in orden:
@@ -436,9 +460,35 @@ def main():
     if check_lluvias:
         col_lluvias = st.selectbox("Columna Indicador Lluvia (Sí/No, 1/0):", df.columns)
 
+    # --- NUEVA SECCIÓN DE CONFIGURACIÓN PARA ANÁLISIS DE TEXTO ---
+    st.markdown("---")
+    st.subheader("🏥 Análisis de Descripción (Padecimientos/Enfermedades)")
+    check_txt_med = st.checkbox("Analizar Descripciones (Ej. Buscar Diabetes, Hipertensión, etc.)")
+    
+    col_desc_med = None
+    col_filtro_med = None
+    val_filtro_med = None
+    
+    if check_txt_med:
+        c_txt1, c_txt2 = st.columns(2)
+        # Intenta encontrar la columna que dijo el usuario por defecto
+        idx_desc = 0
+        if "descripcion_del_incidente" in df.columns:
+            idx_desc = list(df.columns).index("descripcion_del_incidente")
+            
+        col_desc_med = c_txt1.selectbox("Columna con la DESCRIPCIÓN:", df.columns, index=idx_desc)
+        col_filtro_med = c_txt2.selectbox("Columna para FILTRAR (Ej. Tipo de Incidente):", df.columns, index=0)
+        
+        # Obtenemos valores únicos para que el usuario elija qué filtrar
+        unique_vals = df[col_filtro_med].dropna().unique().tolist()
+        val_filtro_med = st.multiselect(f"Selecciona valores de '{col_filtro_med}' a analizar (Ej. Atencion Medica):", unique_vals)
+        
+        if not val_filtro_med:
+            st.warning("⚠️ Debes seleccionar al menos un valor para filtrar (o selecciona todos si quieres analizar todo).")
+
     st.markdown("---")
     st.subheader("🛠️ Filtros y Gráficas Avanzadas")
-    ignorar_medica = st.checkbox("Ignorar 'Atención Médica'", value=True)
+    ignorar_medica = st.checkbox("Ignorar 'Atención Médica' (En gráfica General)", value=True)
     
     col_g1, col_g2 = st.columns(2)
     graf_top10 = col_g1.checkbox("Barras: Top 10 Incidentes", value=True)
@@ -464,26 +514,58 @@ def main():
             df_c[col_inc] = df_c[col_inc].apply(limpiar_texto)
             df_c[col_col] = df_c[col_col].apply(limpiar_texto)
             
+            # Filtro "Ignorar médica" solo aplica al conteo general, no al analisis medico especifico
+            df_general = df_c.copy()
             if ignorar_medica:
-                df_c = df_c[df_c[col_inc] != "atencion medica"]
+                df_general = df_general[df_general[col_inc] != "atencion medica"]
             
-            if df_c.empty:
-                st.error("Sin datos tras filtros.")
-                return
+            if df_general.empty:
+                st.warning("Sin datos para gráfica general tras filtros (pero seguimos procesando lo demás).")
 
             valid_fechas = False
             if col_fecha:
                 df_c['fecha_p'] = df_c[col_fecha].apply(parsear_fecha)
+                # Aplicamos también a df_general
+                df_general['fecha_p'] = df_c['fecha_p']
+                
                 if df_c['fecha_p'].notna().sum() > 0:
                     valid_fechas = True
                     df_c = df_c.dropna(subset=['fecha_p'])
+                    df_general = df_general.dropna(subset=['fecha_p'])
                     df_c['mes'] = df_c['fecha_p'].dt.to_period('M')
+                    df_general['mes'] = df_general['fecha_p'].dt.to_period('M')
             
             conteos = {
-                "General": df_c[col_inc].value_counts(),
-                "Colonias": df_c[col_col].value_counts()
+                "General": df_general[col_inc].value_counts(),
+                "Colonias": df_general[col_col].value_counts()
             }
             imgs = {}
+
+            # --- ANÁLISIS DE TEXTO MÉDICO ---
+            if check_txt_med and col_desc_med and col_filtro_med and val_filtro_med:
+                try:
+                    # 1. Filtrar solo las filas que el usuario pidió (Ej. solo Atencion Medica)
+                    df_med = df[df[col_filtro_med].isin(val_filtro_med)].copy()
+                    
+                    if not df_med.empty:
+                        # 2. Aplicar la clasificación de texto
+                        df_med['Padecimiento_Detectado'] = df_med[col_desc_med].apply(clasificar_enfermedad)
+                        
+                        # 3. Filtrar los "No especificado" si se desea, o dejarlos
+                        conteo_padecimientos = df_med['Padecimiento_Detectado'].value_counts()
+                        # Separar padecimientos múltiples si la función devuelve "Diabetes, Hipertensión"
+                        conteo_padecimientos = df_med['Padecimiento_Detectado'].str.split(', ', expand=True).stack().value_counts()
+                        
+                        conteos["Padecimientos Detectados (Texto)"] = conteo_padecimientos
+                        
+                        # 4. Graficar
+                        st.subheader(f"🏥 Padecimientos Detectados en {val_filtro_med}")
+                        st.plotly_chart(generar_grafica_plotly_bar(conteo_padecimientos.head(15), "Top Padecimientos Detectados"), use_container_width=True)
+                        imgs["Padecimientos Detectados (Texto)"] = generar_grafica_bar(conteo_padecimientos.head(15), "Padecimientos Detectados", "g_pad_txt.png")
+                    else:
+                        st.warning("No se encontraron filas con los filtros seleccionados para el análisis de texto.")
+                except Exception as e:
+                    st.error(f"Error en análisis de texto: {e}")
 
             res_lluv = None
             if check_lluvias and col_lluvias:
@@ -493,18 +575,18 @@ def main():
                     conteos["Colonias Afectadas por Lluvias"] = res_lluv['conteo_colonias']
             
             if col_genero:
-                 df_c['genero_norm'] = df_c[col_genero].apply(normalizar_genero)
-                 conteos["Desglose por Género"] = df_c['genero_norm'].fillna('No id').value_counts()
+                 df_general['genero_norm'] = df_general[col_genero].apply(normalizar_genero)
+                 conteos["Desglose por Género"] = df_general['genero_norm'].fillna('No id').value_counts()
 
             if col_edad:
-                df_c['edad_cat'] = df_c[col_edad].apply(limpiar_y_categorizar_edad)
-                conteos["Desglose por Rango Edad"] = df_c['edad_cat'].value_counts()
+                df_general['edad_cat'] = df_general[col_edad].apply(limpiar_y_categorizar_edad)
+                conteos["Desglose por Rango Edad"] = df_general['edad_cat'].value_counts()
 
             # --- RESULTADOS ---
             st.header("3. Resultados")
             c1, c2, c3 = st.columns(3)
             c1.metric("Total", len(df_c))
-            c2.metric("Tipos", df_c[col_inc].nunique())
+            c2.metric("Tipos", df_general[col_inc].nunique())
             if res_lluv: c3.metric("Lluvia", res_lluv['estadisticas']['total_lluvias'])
             
             st.subheader("Vista General")
@@ -516,7 +598,7 @@ def main():
                 st.subheader("⚫ Rango de Edad Dominante por Colonia (Top 10)")
                 try:
                     top10_c = conteos["Colonias"].head(10).index.tolist()
-                    df_edad = df_c[df_c[col_col].isin(top10_c) & df_c['edad_cat'].notna()].copy()
+                    df_edad = df_general[df_general[col_col].isin(top10_c) & df_general['edad_cat'].notna()].copy()
                     
                     if not df_edad.empty:
                         grp_edad = df_edad.groupby([col_col, 'edad_cat']).size().reset_index(name='Cantidad')
@@ -537,7 +619,7 @@ def main():
 
             if valid_fechas and col_genero and graf_pct_genero:
                 try:
-                    df_gen = df_c[df_c['genero_norm'].isin(['Masculino', 'Femenino'])].copy()
+                    df_gen = df_general[df_general['genero_norm'].isin(['Masculino', 'Femenino'])].copy()
                     if not df_gen.empty:
                         conteo_gen_mes = df_gen.groupby(['mes', 'genero_norm']).size().reset_index(name='cuenta')
                         total_mes = df_gen.groupby('mes').size().reset_index(name='total_mes')
@@ -555,7 +637,7 @@ def main():
                 if graf_linea_inc:
                     try:
                         top10_names = conteos["General"].head(10).index.tolist()
-                        df_top = df_c[df_c[col_inc].isin(top10_names)].copy()
+                        df_top = df_general[df_general[col_inc].isin(top10_names)].copy()
                         data_linea = df_top.groupby(['mes', col_inc]).size().reset_index(name='conteo')
                         if not data_linea.empty:
                             st.subheader("📈 Tendencia Incidentes")
@@ -566,7 +648,7 @@ def main():
                 if graf_linea_col:
                     try:
                         top10_cols = conteos["Colonias"].head(10).index.tolist()
-                        df_top_c = df_c[df_c[col_col].isin(top10_cols)].copy()
+                        df_top_c = df_general[df_general[col_col].isin(top10_cols)].copy()
                         data_linea_c = df_top_c.groupby(['mes', col_col]).size().reset_index(name='conteo')
                         if not data_linea_c.empty:
                             st.subheader("📈 Tendencia Colonias")
