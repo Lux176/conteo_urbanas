@@ -5,6 +5,7 @@ from docx import Document
 from docx.shared import Inches
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
+import matplotlib.dates as mdates  # LIBRERÍA NECESARIA AGREGADA
 import plotly.express as px
 import plotly.graph_objects as go
 import tempfile
@@ -85,71 +86,107 @@ def generar_grafica_bar(conteo, titulo, filename):
     plt.close()
     return path
 
+# --- CORRECCIÓN 1: Gráfica Linea Simple ---
 def generar_grafica_linea_simple(datos, titulo, xlabel, ylabel, filename):
     if datos.empty: return None
     df_plot = datos.reset_index()
     df_plot.columns = ['Periodo', 'Cantidad']
     df_plot = df_plot.sort_values('Periodo')
-    etiquetas_x = [formatear_periodo_es(p) for p in df_plot['Periodo']]
-    plt.figure(figsize=(10, 6))
-    plt.plot(etiquetas_x, df_plot['Cantidad'], marker='o', linestyle='-', color='teal', linewidth=2)
-    plt.title(titulo, fontsize=12, fontweight='bold')
-    plt.xlabel(xlabel, fontweight='bold')
-    plt.ylabel(ylabel, fontweight='bold')
-    plt.xticks(rotation=45, ha='right', fontsize=8)
-    plt.grid(True, alpha=0.3)
+    
+    # CORRECCIÓN: Usar Timestamp en lugar de string para el eje X
+    x_vals = df_plot['Periodo'].dt.to_timestamp()
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(x_vals, df_plot['Cantidad'], marker='o', linestyle='-', color='teal', linewidth=2)
+    
+    ax.set_title(titulo, fontsize=12, fontweight='bold')
+    ax.set_xlabel(xlabel, fontweight='bold')
+    ax.set_ylabel(ylabel, fontweight='bold')
+    
+    # Formateo de fecha para que no regrese la línea
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.tick_params(axis='x', rotation=45, labelsize=8)
+    
+    ax.grid(True, alpha=0.3)
     plt.tight_layout()
+    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
     return path
 
+# --- CORRECCIÓN 2: Gráfica Línea Múltiple ---
 def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, filename):
     if df_long.empty: return None
-    plt.figure(figsize=(12, 7))
+    
+    fig, ax = plt.subplots(figsize=(12, 7))
     grupos = df_long[col_grupo].unique()
     cmap = plt.get_cmap('tab10')
+    
     for i, grupo in enumerate(grupos):
         subset = df_long[df_long[col_grupo] == grupo].sort_values(by=col_x)
-        x_vals = [formatear_periodo_es(p) for p in subset[col_x]]
+        # CORRECCIÓN: Convertir Period a Timestamp
+        x_vals = subset[col_x].dt.to_timestamp()
         y_vals = subset[col_y]
         color = cmap(i % 10)
-        plt.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=2, label=grupo, color=color)
-    plt.title(titulo, fontsize=14, fontweight='bold')
-    plt.xlabel("Mes", fontweight='bold')
-    plt.ylabel(col_y.title(), fontweight='bold')
-    plt.xticks(rotation=45, ha='right', fontsize=8)
-    plt.grid(True, alpha=0.3)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., fontsize='small')
+        ax.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=2, label=grupo, color=color)
+    
+    ax.set_title(titulo, fontsize=14, fontweight='bold')
+    ax.set_xlabel("Mes", fontweight='bold')
+    ax.set_ylabel(col_y.title(), fontweight='bold')
+    
+    # Formateo de fecha correcto
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.tick_params(axis='x', rotation=45, labelsize=8)
+    
+    ax.grid(True, alpha=0.3)
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., fontsize='small')
     plt.tight_layout()
+    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
     return path
 
+# --- CORRECCIÓN 3: Gráfica Porcentaje Género ---
 def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_genero, titulo, filename):
     if df_long.empty: return None
     fig, ax = plt.subplots(figsize=(12, 7))
     color_map = {'Masculino': 'blue', 'Femenino': 'purple'}
+    
     for genero in ['Masculino', 'Femenino']:
         subset = df_long[df_long[col_genero] == genero].sort_values(by=col_periodo)
         if subset.empty: continue
-        x_vals = [formatear_periodo_es(p) for p in subset[col_periodo]]
+        
+        # CORRECCIÓN: Convertir a Timestamp
+        x_vals = subset[col_periodo].dt.to_timestamp()
         y_vals = subset[col_pct].values
         color = color_map.get(genero, 'grey')
+        
         ax.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=3, label=genero, color=color)
+        
         for x, y in zip(x_vals, y_vals):
+            # x es ahora un Timestamp, pero annotate lo maneja bien
             ax.annotate(f'{y:.0f}%', xy=(x, y), xytext=(0, 8), textcoords='offset points',
                         ha='center', va='bottom', fontsize=9, fontweight='bold', color=color)
+    
     ax.set_title(titulo, fontsize=14, fontweight='bold')
     ax.set_xlabel("Mes", fontweight='bold')
     ax.set_ylabel("Porcentaje (%)", fontweight='bold')
     ax.set_ylim(0, 115)
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-    plt.xticks(rotation=45, ha='right', fontsize=9)
-    plt.grid(True, alpha=0.3, axis='y')
-    plt.legend(loc='best', fontsize='medium')
+    
+    # Formateo de fecha
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.tick_params(axis='x', rotation=45, labelsize=9)
+    
+    ax.grid(True, alpha=0.3, axis='y')
+    ax.legend(loc='best', fontsize='medium')
     plt.tight_layout()
+    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
