@@ -5,7 +5,7 @@ from docx import Document
 from docx.shared import Inches
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
-import matplotlib.dates as mdates  # LIBRERÍA NECESARIA AGREGADA
+import matplotlib.dates as mdates
 import plotly.express as px
 import plotly.graph_objects as go
 import tempfile
@@ -29,7 +29,11 @@ def formatear_periodo_es(periodo):
     if pd.isna(periodo): return ""
     meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 
              7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
-    return f"{meses.get(periodo.month, '')} {periodo.year}"
+    # Intenta obtener mes/año de un objeto Period o Datetime
+    try:
+        return f"{meses.get(periodo.month, '')} {periodo.year}"
+    except:
+        return str(periodo)
 
 def limpiar_texto(texto):
     if not isinstance(texto, str): return str(texto).lower().strip()
@@ -90,26 +94,28 @@ def generar_grafica_linea_simple(datos, titulo, xlabel, ylabel, filename):
     if datos.empty: return None
     df_plot = datos.reset_index()
     df_plot.columns = ['Periodo', 'Cantidad']
-    df_plot = df_plot.sort_values('Periodo')
     
-    # CORRECCIÓN: Usar Timestamp en lugar de string para el eje X
-    x_vals = df_plot['Periodo'].dt.to_timestamp()
+    # MATPLOTLIB FIX: Convertir a Timestamp Y LUEGO ordenar
+    try:
+        df_plot['Fecha_X'] = df_plot['Periodo'].dt.to_timestamp()
+    except:
+        df_plot['Fecha_X'] = pd.to_datetime(df_plot['Periodo'].astype(str), errors='coerce')
+        
+    df_plot = df_plot.dropna(subset=['Fecha_X']).sort_values('Fecha_X')
     
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(x_vals, df_plot['Cantidad'], marker='o', linestyle='-', color='teal', linewidth=2)
+    ax.plot(df_plot['Fecha_X'], df_plot['Cantidad'], marker='o', linestyle='-', color='teal', linewidth=2)
     
     ax.set_title(titulo, fontsize=12, fontweight='bold')
     ax.set_xlabel(xlabel, fontweight='bold')
     ax.set_ylabel(ylabel, fontweight='bold')
     
-    # Formateo de fecha para que no regrese la línea
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
     ax.xaxis.set_major_locator(mdates.MonthLocator())
     ax.tick_params(axis='x', rotation=45, labelsize=8)
     
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
@@ -123,18 +129,22 @@ def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, fil
     cmap = plt.get_cmap('tab10')
     
     for i, grupo in enumerate(grupos):
-        subset = df_long[df_long[col_grupo] == grupo].sort_values(by=col_x)
-        # CORRECCIÓN: Convertir Period a Timestamp
-        x_vals = subset[col_x].dt.to_timestamp()
-        y_vals = subset[col_y]
-        color = cmap(i % 10)
-        ax.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=2, label=grupo, color=color)
+        subset = df_long[df_long[col_grupo] == grupo].copy()
+        
+        # MATPLOTLIB FIX: Convertir y luego ordenar
+        try:
+            subset['Fecha_X'] = subset[col_x].dt.to_timestamp()
+        except:
+            subset['Fecha_X'] = pd.to_datetime(subset[col_x].astype(str), errors='coerce')
+            
+        subset = subset.dropna(subset=['Fecha_X']).sort_values('Fecha_X')
+        
+        ax.plot(subset['Fecha_X'], subset[col_y], marker='o', linestyle='-', linewidth=2, label=grupo, color=cmap(i % 10))
     
     ax.set_title(titulo, fontsize=14, fontweight='bold')
     ax.set_xlabel("Mes", fontweight='bold')
     ax.set_ylabel(col_y.title(), fontweight='bold')
     
-    # Formateo de fecha correcto
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
     ax.xaxis.set_major_locator(mdates.MonthLocator())
     ax.tick_params(axis='x', rotation=45, labelsize=8)
@@ -142,7 +152,6 @@ def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, fil
     ax.grid(True, alpha=0.3)
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., fontsize='small')
     plt.tight_layout()
-    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
@@ -154,18 +163,21 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
     color_map = {'Masculino': 'blue', 'Femenino': 'purple'}
     
     for genero in ['Masculino', 'Femenino']:
-        subset = df_long[df_long[col_genero] == genero].sort_values(by=col_periodo)
+        subset = df_long[df_long[col_genero] == genero].copy()
         if subset.empty: continue
         
-        # CORRECCIÓN: Convertir a Timestamp
-        x_vals = subset[col_periodo].dt.to_timestamp()
-        y_vals = subset[col_pct].values
+        # MATPLOTLIB FIX: Convertir y luego ordenar
+        try:
+            subset['Fecha_X'] = subset[col_periodo].dt.to_timestamp()
+        except:
+            subset['Fecha_X'] = pd.to_datetime(subset[col_periodo].astype(str), errors='coerce')
+            
+        subset = subset.dropna(subset=['Fecha_X']).sort_values('Fecha_X')
+        
         color = color_map.get(genero, 'grey')
+        ax.plot(subset['Fecha_X'], subset[col_pct], marker='o', linestyle='-', linewidth=3, label=genero, color=color)
         
-        ax.plot(x_vals, y_vals, marker='o', linestyle='-', linewidth=3, label=genero, color=color)
-        
-        for x, y in zip(x_vals, y_vals):
-            # x es ahora un Timestamp, pero annotate lo maneja bien
+        for x, y in zip(subset['Fecha_X'], subset[col_pct]):
             ax.annotate(f'{y:.0f}%', xy=(x, y), xytext=(0, 8), textcoords='offset points',
                         ha='center', va='bottom', fontsize=9, fontweight='bold', color=color)
     
@@ -175,7 +187,6 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
     ax.set_ylim(0, 115)
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
     
-    # Formateo de fecha
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
     ax.xaxis.set_major_locator(mdates.MonthLocator())
     ax.tick_params(axis='x', rotation=45, labelsize=9)
@@ -183,7 +194,6 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
     ax.grid(True, alpha=0.3, axis='y')
     ax.legend(loc='best', fontsize='medium')
     plt.tight_layout()
-    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
@@ -191,9 +201,7 @@ def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_g
 
 # --- NUEVA FUNCIÓN MATPLOTLIT: CÍRCULOS NEGROS ---
 def generar_grafica_circulos_edad_word(df_data, titulo, filename):
-    """Gráfica de burbujas estática para Word: Círculos negros con texto blanco."""
     if df_data.empty: return None
-    
     fig, ax = plt.subplots(figsize=(12, 8))
     
     colonias = df_data['Colonia'].unique()
@@ -208,16 +216,10 @@ def generar_grafica_circulos_edad_word(df_data, titulo, filename):
     for _, row in df_data.iterrows():
         c_idx = col_map.get(row['Colonia'])
         r_idx = rango_map.get(row['Rango'])
-        
         if c_idx is not None and r_idx is not None:
             pct = row['Porcentaje']
-            # Escalar tamaño del círculo (s es área en puntos^2)
             marker_size = pct * 30 
-            
-            # 1. Dibujar círculo negro
             ax.scatter(c_idx, r_idx, s=marker_size, c='black', alpha=0.9, zorder=3)
-            
-            # 2. Dibujar texto blanco en el centro
             ax.text(c_idx, r_idx, f"{pct:.0f}%", ha='center', va='center', 
                     fontsize=9, fontweight='bold', color='white', zorder=4)
 
@@ -229,7 +231,6 @@ def generar_grafica_circulos_edad_word(df_data, titulo, filename):
     ax.set_title(titulo, fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.2, linestyle='--', zorder=0)
     plt.tight_layout()
-    
     path = os.path.join(tempfile.gettempdir(), filename)
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
@@ -244,17 +245,25 @@ def generar_grafica_plotly_bar(conteo, titulo):
     fig = px.bar(df_plot, x='Categoría', y='Cantidad', title=titulo, color='Cantidad')
     return fig
 
-# --- CORRECCIÓN FINAL: Gráfica Plotly Línea (Para solucionar el ZigZag) ---
+# --- CORRECCIÓN DEFINITIVA PLOTLY: Ordenamiento estricto por Timestamp ---
 def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo, es_porcentaje=False):
     if df_long.empty: return px.line(title="Sin datos")
     df_plot = df_long.copy()
-    df_plot = df_plot.sort_values(col_periodo)
     
-    # CORRECCIÓN: Crear columna de fecha real (Timestamp) para el eje X
-    # Esto soluciona el ordenamiento y el zigzag
-    df_plot['Fecha_X'] = df_plot[col_periodo].dt.to_timestamp()
+    # 1. CREAR TIMESTAMP PRIMERO (Para garantizar que tenemos fechas reales)
+    try:
+        df_plot['Fecha_X'] = df_plot[col_periodo].dt.to_timestamp()
+    except:
+        # Fallback si no es Period
+        df_plot['Fecha_X'] = pd.to_datetime(df_plot[col_periodo].astype(str), errors='coerce')
+
+    # 2. ELIMINAR NULOS DE FECHA (Por seguridad)
+    df_plot = df_plot.dropna(subset=['Fecha_X'])
+
+    # 3. ORDENAR EXPLÍCITAMENTE POR TIMESTAMP (Esto es lo que arregla el ZigZag)
+    df_plot = df_plot.sort_values('Fecha_X')
     
-    # Mantenemos el texto formateado en español para las etiquetas del eje
+    # 4. Crear etiqueta de texto para tooltip y eje X
     df_plot['Mes_Texto'] = df_plot[col_periodo].apply(formatear_periodo_es)
     
     if es_porcentaje: df_plot['Etiqueta'] = df_plot[col_y].apply(lambda x: f"{x:.1f}%")
@@ -262,11 +271,10 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
 
     color_map = {'Masculino': 'blue', 'Femenino': 'purple'} if (es_porcentaje and col_color) else None
 
-    # Usamos 'Fecha_X' en lugar de 'Mes_Texto' para graficar la línea (garantiza continuidad)
+    # Graficar usando 'Fecha_X' como eje X (esto asegura la continuidad temporal)
     if col_color:
         fig = px.line(df_plot, x='Fecha_X', y=col_y, color=col_color, title=titulo, markers=True,
                       text='Etiqueta', color_discrete_map=color_map,
-                      # Ocultamos la fecha en hover, mostramos el texto en español
                       hover_data={'Fecha_X': False, 'Mes_Texto': True})
     else:
         fig = px.line(df_plot, x='Fecha_X', y=col_y, title=titulo, markers=True, text='Etiqueta',
@@ -278,48 +286,40 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
         fig.update_yaxes(range=[0, 115], title="Porcentaje (%)")
         fig.update_traces(hovertemplate='%{y:.1f}%')
 
-    # CORRECCIÓN DE EJES:
-    # 1. Obtenemos las etiquetas únicas ordenadas cronológicamente
+    # Configuración del eje X para mostrar texto bonito pero mantener escala de tiempo
     unique_ticks = df_plot[['Fecha_X', 'Mes_Texto']].drop_duplicates().sort_values('Fecha_X')
     
-    # 2. Forzamos al eje X a usar las fechas reales, pero sobreescribimos el texto con español
     fig.update_xaxes(
-        type='date',       # Asegura que Plotly entienda la línea de tiempo
+        type='date', 
         title="Mes",
-        tickvals=unique_ticks['Fecha_X'], # Posiciones reales
-        ticktext=unique_ticks['Mes_Texto'], # Texto personalizado (Enero 2025...)
+        tickvals=unique_ticks['Fecha_X'],
+        ticktext=unique_ticks['Mes_Texto'],
         tickangle=-45
     )
     
     return fig
 
-# --- NUEVA FUNCIÓN PLOTLY: CÍRCULOS NEGROS ---
 def generar_grafica_plotly_circulos_edad(df_data, titulo):
-    """Gráfica de burbujas interactiva: Círculos negros con texto blanco."""
     if df_data.empty: return px.scatter(title="Sin datos")
-    
-    # Crear el texto que irá dentro del círculo
     df_data['Texto_Pct'] = df_data['Porcentaje'].apply(lambda x: f"{x:.0f}%")
     
     fig = px.scatter(df_data, x="Colonia", y="Rango",
-                     size="Porcentaje", # El tamaño depende del porcentaje
-                     text="Texto_Pct",    # El texto es el porcentaje
+                     size="Porcentaje", 
+                     text="Texto_Pct",    
                      title=titulo,
-                     # Forzar color negro único
                      color_discrete_sequence=['black'],
                      opacity=0.9
                      )
     
     fig.update_traces(
-        mode='markers+text', # Mostrar burbuja y texto
-        textposition='middle center', # Texto centrado
-        textfont=dict(color='white', weight='bold'), # Texto blanco
-        marker=dict(line=dict(width=0)) # Sin borde en el círculo
+        mode='markers+text', 
+        textposition='middle center', 
+        textfont=dict(color='white', weight='bold'), 
+        marker=dict(line=dict(width=0))
     )
 
     fig.update_yaxes(categoryorder='array', categoryarray=["Menor (0-17)", "Joven (18-29)", "Adulto (30-59)", "Mayor (60+)"], title="Rango de Edad Dominante")
     fig.update_layout(height=600, plot_bgcolor='white', xaxis_tickangle=-45, yaxis_gridcolor='lightgrey')
-    
     return fig
 
 # --- ANÁLISIS ---
@@ -447,7 +447,6 @@ def main():
     graf_linea_inc = col_g1.checkbox("Línea: Tendencia Top 10 Incidentes", value=False)
     graf_linea_col = col_g2.checkbox("Línea: Tendencia Top 10 Colonias", value=False)
     
-    # CHECKBOX ACTUALIZADO
     graf_edad_colonia = col_g1.checkbox("Círculos: Rango de Edad Dominante por Colonia", value=False)
 
     # Validaciones
@@ -513,7 +512,6 @@ def main():
             st.plotly_chart(generar_grafica_plotly_bar(top_gen, "Top Incidentes"), use_container_width=True)
             imgs["General"] = generar_grafica_bar(top_gen, "Top Incidentes", "g1.png")
 
-            # --- GRÁFICA CÍRCULOS EDAD (SOLO EL MAYOR) ---
             if col_edad and graf_edad_colonia:
                 st.subheader("⚫ Rango de Edad Dominante por Colonia (Top 10)")
                 try:
@@ -521,20 +519,15 @@ def main():
                     df_edad = df_c[df_c[col_col].isin(top10_c) & df_c['edad_cat'].notna()].copy()
                     
                     if not df_edad.empty:
-                        # 1. Agrupar por colonia y rango
                         grp_edad = df_edad.groupby([col_col, 'edad_cat']).size().reset_index(name='Cantidad')
-                        
-                        # 2. Calcular totales por colonia para el %
                         total_por_colonia = df_edad.groupby(col_col).size().reset_index(name='Total_Col')
                         grp_edad = pd.merge(grp_edad, total_por_colonia, on=col_col)
                         grp_edad['Porcentaje'] = (grp_edad['Cantidad'] / grp_edad['Total_Col']) * 100
                         grp_edad.rename(columns={col_col: 'Colonia', 'edad_cat': 'Rango'}, inplace=True)
                         
-                        # 3. FILTRADO CLAVE: Mantener solo el rango con MAYOR porcentaje por colonia
                         grp_edad = grp_edad.sort_values(['Colonia', 'Porcentaje'], ascending=[True, False])
                         grp_edad_max = grp_edad.drop_duplicates(subset=['Colonia'], keep='first')
                         
-                        # 4. Graficar
                         st.plotly_chart(generar_grafica_plotly_circulos_edad(grp_edad_max, "Rango de Edad Dominante por Colonia"), use_container_width=True)
                         imgs["Rango de Edad Dominante por Colonia"] = generar_grafica_circulos_edad_word(grp_edad_max, "Rango de Edad Dominante (Círculo Negro = % Mayor)", "g_edad_circ.png")
                     else:
@@ -542,7 +535,6 @@ def main():
                 except Exception as e:
                     st.error(f"Error en gráfica de edades: {e}")
 
-            # --- GRÁFICA PORCENTAJE GÉNERO ---
             if valid_fechas and col_genero and graf_pct_genero:
                 try:
                     df_gen = df_c[df_c['genero_norm'].isin(['Masculino', 'Femenino'])].copy()
