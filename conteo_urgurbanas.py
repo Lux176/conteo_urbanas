@@ -86,7 +86,6 @@ def generar_grafica_bar(conteo, titulo, filename):
     plt.close()
     return path
 
-# --- CORRECCIÓN 1: Gráfica Linea Simple ---
 def generar_grafica_linea_simple(datos, titulo, xlabel, ylabel, filename):
     if datos.empty: return None
     df_plot = datos.reset_index()
@@ -116,7 +115,6 @@ def generar_grafica_linea_simple(datos, titulo, xlabel, ylabel, filename):
     plt.close()
     return path
 
-# --- CORRECCIÓN 2: Gráfica Línea Múltiple ---
 def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, filename):
     if df_long.empty: return None
     
@@ -150,7 +148,6 @@ def generar_grafica_linea_multiple(df_long, col_x, col_y, col_grupo, titulo, fil
     plt.close()
     return path
 
-# --- CORRECCIÓN 3: Gráfica Porcentaje Género ---
 def generar_grafica_linea_porcentaje_genero(df_long, col_periodo, col_pct, col_genero, titulo, filename):
     if df_long.empty: return None
     fig, ax = plt.subplots(figsize=(12, 7))
@@ -247,10 +244,17 @@ def generar_grafica_plotly_bar(conteo, titulo):
     fig = px.bar(df_plot, x='Categoría', y='Cantidad', title=titulo, color='Cantidad')
     return fig
 
+# --- CORRECCIÓN FINAL: Gráfica Plotly Línea (Para solucionar el ZigZag) ---
 def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo, es_porcentaje=False):
     if df_long.empty: return px.line(title="Sin datos")
     df_plot = df_long.copy()
     df_plot = df_plot.sort_values(col_periodo)
+    
+    # CORRECCIÓN: Crear columna de fecha real (Timestamp) para el eje X
+    # Esto soluciona el ordenamiento y el zigzag
+    df_plot['Fecha_X'] = df_plot[col_periodo].dt.to_timestamp()
+    
+    # Mantenemos el texto formateado en español para las etiquetas del eje
     df_plot['Mes_Texto'] = df_plot[col_periodo].apply(formatear_periodo_es)
     
     if es_porcentaje: df_plot['Etiqueta'] = df_plot[col_y].apply(lambda x: f"{x:.1f}%")
@@ -258,17 +262,35 @@ def generar_grafica_plotly_linea(df_long, col_periodo, col_y, col_color, titulo,
 
     color_map = {'Masculino': 'blue', 'Femenino': 'purple'} if (es_porcentaje and col_color) else None
 
+    # Usamos 'Fecha_X' en lugar de 'Mes_Texto' para graficar la línea (garantiza continuidad)
     if col_color:
-        fig = px.line(df_plot, x='Mes_Texto', y=col_y, color=col_color, title=titulo, markers=True,
-                      text='Etiqueta', color_discrete_map=color_map)
+        fig = px.line(df_plot, x='Fecha_X', y=col_y, color=col_color, title=titulo, markers=True,
+                      text='Etiqueta', color_discrete_map=color_map,
+                      # Ocultamos la fecha en hover, mostramos el texto en español
+                      hover_data={'Fecha_X': False, 'Mes_Texto': True})
     else:
-        fig = px.line(df_plot, x='Mes_Texto', y=col_y, title=titulo, markers=True, text='Etiqueta')
+        fig = px.line(df_plot, x='Fecha_X', y=col_y, title=titulo, markers=True, text='Etiqueta',
+                       hover_data={'Fecha_X': False, 'Mes_Texto': True})
     
     fig.update_traces(textposition="top center")
+    
     if es_porcentaje:
         fig.update_yaxes(range=[0, 115], title="Porcentaje (%)")
         fig.update_traces(hovertemplate='%{y:.1f}%')
-    fig.update_xaxes(type='category', title="Mes")
+
+    # CORRECCIÓN DE EJES:
+    # 1. Obtenemos las etiquetas únicas ordenadas cronológicamente
+    unique_ticks = df_plot[['Fecha_X', 'Mes_Texto']].drop_duplicates().sort_values('Fecha_X')
+    
+    # 2. Forzamos al eje X a usar las fechas reales, pero sobreescribimos el texto con español
+    fig.update_xaxes(
+        type='date',       # Asegura que Plotly entienda la línea de tiempo
+        title="Mes",
+        tickvals=unique_ticks['Fecha_X'], # Posiciones reales
+        ticktext=unique_ticks['Mes_Texto'], # Texto personalizado (Enero 2025...)
+        tickangle=-45
+    )
+    
     return fig
 
 # --- NUEVA FUNCIÓN PLOTLY: CÍRCULOS NEGROS ---
