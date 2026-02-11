@@ -74,6 +74,8 @@ def parsear_fecha(fecha):
 # --- FUNCIÓN: CLASIFICACIÓN DE ENFERMEDADES POR TEXTO ---
 def clasificar_enfermedad(texto):
     t = limpiar_texto(texto)
+    
+    # MODIFICADO: Si no hay texto, "No especificado"
     if not t: return "No especificado"
     
     keywords = {
@@ -96,7 +98,9 @@ def clasificar_enfermedad(texto):
                 found.append(cat)
                 break 
     
-    if not found: return "Otros / No detectado"
+    # MODIFICADO: Si no encuentra coincidencias, agrupa en "No especificado" en lugar de "Otros"
+    if not found: return "No especificado"
+    
     return ", ".join(found)
 
 # --- FUNCIONES DE GRÁFICAS ---
@@ -121,9 +125,6 @@ def generar_grafica_bar(conteo, titulo, filename):
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
     return path
-
-# (Se mantienen funciones generar_grafica_linea_... y generar_grafica_plotly_... del original)
-# ... [Omitido por brevedad, se asume igual al original del usuario] ...
 
 def generar_grafica_linea_simple(datos, titulo, xlabel, ylabel, filename):
     if datos.empty: return None
@@ -254,7 +255,7 @@ def generar_grafica_plotly_circulos_edad(df_data, titulo):
     if df_data.empty: return px.scatter(title="Sin datos")
     df_data['Texto_Pct'] = df_data['Porcentaje'].apply(lambda x: f"{x:.0f}%")
     fig = px.scatter(df_data, x="Colonia", y="Rango", size="Porcentaje", text="Texto_Pct", title=titulo,
-                     color_discrete_sequence=['black'], opacity=0.9)
+                      color_discrete_sequence=['black'], opacity=0.9)
     fig.update_traces(mode='markers+text', textposition='middle center', textfont=dict(color='white', weight='bold'))
     fig.update_yaxes(categoryorder='array', categoryarray=["Menor (0-17)", "Joven (18-29)", "Adulto (30-59)", "Mayor (60+)"])
     return fig
@@ -284,9 +285,6 @@ def analizar_lluvias_manual(df, col_lluvias, col_colonias, col_inc):
         'conteo_incidentes': conteo_inc,
         'estadisticas': {'total_lluvias': len(df_l), 'porcentaje': (len(df_l)/len(df))*100}
     }
-
-# (Se mantienen generar_reporte_word, generar_txt, get_link igual al original)
-# ... [Omitido por brevedad] ...
 
 def generar_reporte_word(conteos, imagenes):
     doc = Document()
