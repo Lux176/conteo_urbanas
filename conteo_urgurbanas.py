@@ -40,12 +40,18 @@ def limpiar_texto(texto):
     if not isinstance(texto, str): return str(texto).lower().strip()
     return unicodedata.normalize('NFD', texto).encode('ascii', 'ignore').decode('utf-8').lower().strip()
 
+# MODIFICACIÓN: Función de género actualizada
 def normalizar_genero(texto):
     t = limpiar_texto(texto)
-    if not t: return None
+    
+    # Si está vacío, devuelve "No especificado"
+    if not t: return "No especificado"
+    
     if t in ['hombre', 'masculino', 'm', 'varon']: return 'Masculino'
     if t in ['mujer', 'femenino', 'f', 'dama']: return 'Femenino'
-    return None
+    
+    # Si no coincide con ninguno, devuelve "No especificado"
+    return "No especificado"
 
 def limpiar_y_categorizar_edad(valor):
     if pd.isna(valor): return None
@@ -74,7 +80,6 @@ def parsear_fecha(fecha):
 # --- FUNCIÓN: CLASIFICACIÓN DE ENFERMEDADES POR TEXTO ---
 def clasificar_enfermedad(texto):
     t = limpiar_texto(texto)
-    
     # MODIFICADO: Si no hay texto, "No especificado"
     if not t: return "No especificado"
     
@@ -98,9 +103,8 @@ def clasificar_enfermedad(texto):
                 found.append(cat)
                 break 
     
-    # MODIFICADO: Si no encuentra coincidencias, agrupa en "No especificado" en lugar de "Otros"
+    # MODIFICADO: Si no encuentra coincidencias, agrupa en "No especificado"
     if not found: return "No especificado"
-    
     return ", ".join(found)
 
 # --- FUNCIONES DE GRÁFICAS ---
